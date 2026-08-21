@@ -1,0 +1,14 @@
+.env
+config.json
+*_my.*
+/CV_*.pdf
+data/
+output/
+output_backup/
+logs/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.DS_Store

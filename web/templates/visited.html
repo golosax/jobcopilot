@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}JobCopilot · Visited{% endblock %}
+{% block body %}
+<div class="card">
+  <div class="actions" style="justify-content:space-between">
+    <h2 style="margin:0">Visited jobs ({{ count }})</h2>
+    <form method="post" action="{{ url_for('visited_clear') }}"
+          onsubmit="return confirm('Remove ALL visited entries? They will be re-analyzed next run.');">
+      <button class="danger" type="submit">Remove all</button>
+    </form>
+  </div>
+  <p class="hint">These are skipped on the next run (checked by URL before clicking or calling Claude).</p>
+  {% if not items %}
+    <p class="hint">Nothing visited yet.</p>
+  {% else %}
+  <table>
+    <thead>
+      <tr><th>Company</th><th>Position</th><th>Link</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+      <tr>
+        <td>{{ it.company or '—' }}</td>
+        <td>{{ it.position or '—' }}</td>
+        <td><a href="{{ it.url }}" target="_blank">open</a></td>
+        <td>
+          <form method="post" action="{{ url_for('visited_delete') }}">
+            <input type="hidden" name="url" value="{{ it.url }}">
+            <button class="danger" type="submit">remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

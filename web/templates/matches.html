@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}JobCopilot · Matches{% endblock %}
+{% block body %}
+<div class="card">
+  <h2>Matches ({{ matches|length }})</h2>
+  <p class="sub">Each match's documents are grouped in <code>output/&lt;company&gt;/</code>. Check
+    "Applied" once you've submitted an application, so you don't apply twice.</p>
+  {% if not matches %}
+    <p class="hint">No matches yet.</p>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>
+          Score
+          <a href="{{ url_for('matches', sort='desc') }}" title="Sort high to low"
+             style="{{ 'font-weight:800;color:var(--ink);' if sort == 'desc' else '' }}">↓</a>
+          <a href="{{ url_for('matches', sort='asc') }}" title="Sort low to high"
+             style="{{ 'font-weight:800;color:var(--ink);' if sort == 'asc' else '' }}">↑</a>
+        </th>
+        <th>Position</th>
+        <th>Company</th>
+        <th>Cover letter</th>
+        <th>Why fit</th>
+        <th>CV suggestions</th>
+        <th>Applied</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in matches %}
+      <tr>
+        <td><span class="pill {{ 'good' if m.score >= 70 else '' }}">{{ m.score }}%</span></td>
+        <td><a href="{{ m.url }}" target="_blank">{{ m.position }}</a></td>
+        <td>{{ m.company }}</td>
+        <td>{% if m.cover_letter %}<a href="{{ url_for('output_file', name=m.cover_letter) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.why_fit_file %}<a href="{{ url_for('output_file', name=m.why_fit_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('output_file', name=m.cv_suggestions_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>
+          <form method="post" action="{{ url_for('matches_apply') }}" onchange="this.requestSubmit()">
+            <input type="hidden" name="url" value="{{ m.url }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <input type="hidden" name="applied" value="0">
+            <input type="checkbox" name="applied" value="1" {% if m.applied %}checked{% endif %}>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

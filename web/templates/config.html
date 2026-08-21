@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}JobCopilot · Config{% endblock %}
+{% block body %}
+
+<div class="card">
+  <h2>Run</h2>
+  <p class="sub">Start the LinkedIn scan. A Chrome window opens; complete any 2FA there on first run.</p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('start') }}">
+      <button type="submit" id="startbtn" {% if running %}disabled{% endif %}>Start analyzing</button>
+    </form>
+    <form method="post" action="{{ url_for('stop') }}">
+      <button type="submit" id="stopbtn" class="danger" {% if not running %}disabled{% endif %}>Stop</button>
+    </form>
+    <span class="pill {{ 'live' if running else '' }}" id="runstate">{{ 'running' if running else 'idle' }}</span>
+    <a href="{{ url_for('matches') }}">View matches →</a>
+    <a href="{{ url_for('visited') }}">View visited →</a>
+  </div>
+  <label>Live log</label>
+  <pre id="log">(idle)</pre>
+</div>
+
+<div class="card">
+  <h2>CV</h2>
+  {% if cv.exists %}
+    <p class="sub">Stored & reused (parsed once — no repeat token cost) · <span class="pill">{{ cv.chars }} chars</span></p>
+    <p class="hint" style="font-style:italic">“{{ cv.preview }}…”</p>
+  {% else %}
+    <p class="sub">No CV stored yet — upload one below.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('upload_cv') }}" enctype="multipart/form-data">
+    <input type="file" name="cv_file" accept=".pdf,.docx,.txt">
+    <div class="hint">pdf / docx / txt — text is extracted and stored in data/cv.txt</div>
+    <br><button class="secondary" type="submit">Upload CV</button>
+  </form>
+</div>
+
+<form method="post" action="{{ url_for('save') }}">
+  <div class="card">
+    <h2>Cover letter</h2>
+    <label class="check"><input type="checkbox" id="generate_cover_letter" name="generate_cover_letter" {% if cfg.generate_cover_letter %}checked{% endif %} onchange="toggleContactFields()"> Generate cover letter</label>
+    <div class="hint">Off skips the cover-letter PDF (and its AI call) for every match; why-fit and CV suggestions are unaffected. The contact fields below are only used for the cover-letter header, so they're locked when this is off.</div>
+    <div class="row" style="margin-top:10px">
+      <div>
+        <label>Location</label>
+        <input type="text" id="candidate_location" name="candidate_location" value="{{ cfg.candidate_location }}" placeholder="City, Country">
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="email" id="candidate_email" name="candidate_email" value="{{ cfg.candidate_email }}">
+      </div>
+      <div>
+        <label>Phone</label>
+        <input type="text" id="candidate_phone" name="candidate_phone" value="{{ cfg.candidate_phone }}">
+      </div>
+      <div>
+        <label>LinkedIn</label>
+        <input type="text" id="candidate_linkedin" name="candidate_linkedin" value="{{ cfg.candidate_linkedin }}" placeholder="linkedin.com/in/you">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Profile & search</h2>
+    <div class="row">
+      <div>
+        <label>Name and surname</label>
+        <input type="text" name="candidate_name" value="{{ cfg.candidate_name }}">
+        <div class="hint">Used in the cover-letter filename, e.g. CL_YourName_Company.pdf</div>
+      </div>
+      <div>
+        <label>Match threshold (%)</label>
+        <input type="number" name="match_threshold" value="{{ cfg.match_threshold }}" min="0" max="100">
+      </div>
+    </div>
+    <label>Search URL</label>
+    <input type="url" name="search_url" value="{{ cfg.search_url }}">
+    <label>Additional points (summed with the CV when matching)</label>
+    <textarea name="extra_notes">{{ cfg.extra_notes }}</textarea>
+    <div class="hint">Extra skills / preferences you want weighted against the job description.</div>
+  </div>
+
+  <div class="card">
+    <h2>Global style rules</h2>
+    <p class="sub">Applied automatically to <strong>every</strong> AI-generated text (matching, cover
+      letter, why-fit, CV suggestions) — appended right after each task's fixed system prompt.</p>
+    <textarea name="global_style_notes" style="min-height:90px">{{ cfg.global_style_notes }}</textarea>
+  </div>
+
+  <div class="card">
+    <h2>Prompts</h2>
+    <p class="sub">Each task has a fixed <strong>system prompt</strong> (read-only — it holds the
+      placeholders and output structure the program depends on) and your own
+      <strong>editable instructions</strong> that get appended when calling the AI.</p>
+    {% for p in prompts %}
+    <div style="border-top:1px solid var(--line); padding-top:14px; margin-top:14px">
+      <label style="font-size:14px; font-weight:650">{{ p.label }}</label>
+      <label>System prompt (read-only)</label>
+      <textarea rows="7" readonly style="background:var(--soft); color:var(--muted); cursor:not-allowed">{{ p.system }}</textarea>
+      <div class="hint">Structural — cannot be edited. Placeholders {cv} {title} {company} {description} are filled automatically.</div>
+      <label>Your instructions (editable)</label>
+      <textarea name="{{ p.notes_key }}" placeholder="Optional: add your own guidance/tone/rules for this task">{{ cfg[p.notes_key] }}</textarea>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h2>Advanced</h2>
+    <div class="row">
+      <div><label>Min delay (s)</label><input type="number" name="min_delay_sec" value="{{ cfg.min_delay_sec }}"></div>
+      <div><label>Max delay (s)</label><input type="number" name="max_delay_sec" value="{{ cfg.max_delay_sec }}"></div>
+      <div><label>Max pages (0=all)</label><input type="number" name="max_pages" value="{{ cfg.max_pages }}"></div>
+      <div><label>Max jobs/run (0=all)</label><input type="number" name="max_jobs_per_run" value="{{ cfg.max_jobs_per_run }}"></div>
+    </div>
+    <div class="row">
+      <div>
+        <label>AI backend</label>
+        <div style="display:flex; gap:20px; margin-top:5px">
+          <label class="check" style="margin:0; font-weight:400"><input type="radio" name="llm_backend" value="claude" {% if cfg.llm_backend != 'codex' %}checked{% endif %}> Claude</label>
+          <label class="check" style="margin:0; font-weight:400"><input type="radio" name="llm_backend" value="codex" {% if cfg.llm_backend == 'codex' %}checked{% endif %}> Codex (ChatGPT plan)</label>
+        </div>
+        <div class="hint">Both run off your existing subscription, no API key, no per-token billing. Codex refuses to run if it isn't signed in via ChatGPT (run <code>codex login</code> once beforehand).</div>
+      </div>
+    </div>
+    <div class="row">
+      <div><label>Claude model</label><input type="text" name="claude_model" value="{{ cfg.claude_model }}"></div>
+      <div><label>Codex model</label><input type="text" name="codex_model" value="{{ cfg.codex_model }}" placeholder="(leave blank for codex's default)"></div>
+      <div><label>Chrome version</label><input type="number" name="chrome_version" value="{{ cfg.chrome_version if cfg.chrome_version is not none else '' }}"></div>
+      <div><label class="check" style="margin-top:14px"><input type="checkbox" name="headless" {% if cfg.headless %}checked{% endif %}> Headless</label></div>
+    </div>
+  </div>
+
+  <button type="submit">Save configuration</button>
+</form>
+
+<script>
+async function poll() {
+  try {
+    const r = await fetch("{{ url_for('status') }}");
+    const d = await r.json();
+    document.getElementById('log').textContent = d.log || '(idle)';
+    const s = document.getElementById('runstate');
+    s.textContent = d.running ? 'running' : 'idle';
+    s.className = 'pill ' + (d.running ? 'live' : '');
+    document.getElementById('startbtn').disabled = d.running;
+    document.getElementById('stopbtn').disabled = !d.running;
+  } catch (e) {}
+}
+setInterval(poll, 2500); poll();
+
+function toggleContactFields() {
+  const on = document.getElementById('generate_cover_letter').checked;
+  ['candidate_location', 'candidate_email', 'candidate_phone', 'candidate_linkedin'].forEach(function (id) {
+    const el = document.getElementById(id);
+    el.readOnly = !on;
+    el.style.background = on ? '' : 'var(--soft)';
+    el.style.color = on ? '' : 'var(--muted)';
+  });
+}
+toggleContactFields();
+</script>
+{% endblock %}
