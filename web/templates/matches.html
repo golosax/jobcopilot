@@ -33,8 +33,8 @@
         <td><a href="{{ m.url }}" target="_blank">{{ m.position }}</a></td>
         <td>{{ m.company }}</td>
         <td>{% if m.cover_letter %}<a href="{{ url_for('output_file', name=m.cover_letter) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>{% if m.why_fit_file %}<a href="{{ url_for('output_file', name=m.why_fit_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('output_file', name=m.cv_suggestions_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.why_fit_file %}<a href="{{ url_for('view_text', name=m.why_fit_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('view_text', name=m.cv_suggestions_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
         <td>
           <form method="post" action="{{ url_for('matches_apply') }}" onchange="this.requestSubmit()">
             <input type="hidden" name="url" value="{{ m.url }}">

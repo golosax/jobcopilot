@@ -4,7 +4,8 @@ config.json
 /CV_*.pdf
 data/
 output/
-output_backup/
+output_backup_a/
+output_backup_l/
 logs/
 __pycache__/
 *.pyc

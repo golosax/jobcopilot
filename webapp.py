@@ -11,6 +11,7 @@ import threading
 from dotenv import load_dotenv
 from flask import (
     Flask,
+    abort,
     redirect,
     render_template,
     request,
@@ -214,6 +215,21 @@ def visited_clear():
 @app.route("/file/<path:name>")
 def output_file(name):
     return send_from_directory(_OUTPUT_DIR, name, as_attachment=False)
+
+
+@app.route("/view/<path:name>")
+def view_text(name):
+    # why-fit / cv-suggestions notes only - the cover letter PDF renders fine
+    # natively and doesn't need this
+    if not name.lower().endswith(".txt"):
+        abort(404)
+    path = os.path.realpath(os.path.join(_OUTPUT_DIR, name))
+    if not path.startswith(os.path.realpath(_OUTPUT_DIR) + os.sep) or not os.path.isfile(path):
+        abort(404)
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+    title = os.path.basename(name)
+    return render_template("view_text.html", title=title, text=text)
 
 
 if __name__ == "__main__":
