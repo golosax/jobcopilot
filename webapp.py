@@ -229,7 +229,7 @@ def view_text(name):
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     title = os.path.basename(name)
-    return render_template("view_text.html", title=title, text=text)
+    return render_template("view_text.html", title=title, text=text, back_url=url_for("matches"))
 
 
 if __name__ == "__main__":

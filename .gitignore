@@ -1,6 +1,7 @@
 .env
 config.json
 *_my.*
+*.zip
 /CV_*.pdf
 data/
 output/
