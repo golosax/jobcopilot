@@ -47,7 +47,8 @@
     button.danger:hover { background:#fbeee9; }
     table { width:100%; border-collapse:collapse; }
     th, td { text-align:left; padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top; font-size:14px; }
-    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+    th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px;
+      position:sticky; top:var(--header-h, 58px); background:var(--panel); z-index:4; box-shadow:0 1px 0 var(--line); }
     tr:last-child td { border-bottom:0; }
     pre { background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:13px;
       overflow:auto; max-height:300px; white-space:pre-wrap; font-size:12.5px; margin:0; }
@@ -69,5 +70,14 @@
     </nav>
   </header>
   <main>{% block body %}{% endblock %}</main>
+  <script>
+    // pin table headers right below the sticky top nav, whatever its rendered height is
+    (function () {
+      var header = document.querySelector("header");
+      if (header) {
+        document.documentElement.style.setProperty("--header-h", header.offsetHeight + "px");
+      }
+    })();
+  </script>
 </body>
 </html>

@@ -14,6 +14,7 @@ import shutil
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.json")
 _EXAMPLE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.example.json")
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
+EXTRA_NOTES_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "extra_notes")
 
 # ---------------------------------------------------------------------------
 # STRUCTURAL PROMPTS - hardcoded and read-only. Do not load these from config;
@@ -139,7 +140,6 @@ DEFAULTS = {
     "candidate_linkedin": "",
     "extra_notes": "",
     "match_threshold": 70,
-    "generate_cover_letter": True,
     "min_delay_sec": 15,
     "max_delay_sec": 90,
     "max_jobs_per_run": 0,
@@ -217,9 +217,39 @@ def active_model(cfg):
     return cfg.get("claude_model") or None
 
 
+def extra_notes_files():
+    """Sorted list of .txt filenames in data/extra_notes/, or [] if the
+    directory doesn't exist or is empty.
+    """
+    if not os.path.isdir(EXTRA_NOTES_DIR):
+        return []
+    return sorted(f for f in os.listdir(EXTRA_NOTES_DIR) if f.lower().endswith(".txt"))
+
+
+def _read_extra_notes_files():
+    """Combined content of every file in data/extra_notes/, in filename order."""
+    parts = []
+    for name in extra_notes_files():
+        try:
+            with open(os.path.join(EXTRA_NOTES_DIR, name), "r", encoding="utf-8") as f:
+                text = f.read().strip()
+        except OSError:
+            continue
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
 def effective_cv(cfg, cv_text):
-    """CV text plus the user's extra matching notes."""
-    notes = (cfg.get("extra_notes") or "").strip()
+    """CV text plus the user's extra matching notes.
+
+    data/extra_notes/*.txt takes priority when present (lets multiple prompt
+    fragments be managed as files instead of one textarea); falls back to the
+    extra_notes config field when that directory is empty or missing.
+    """
+    notes = _read_extra_notes_files()
+    if not notes:
+        notes = (cfg.get("extra_notes") or "").strip()
     if notes:
         return cv_text.strip() + "\n\n=== ADDITIONAL POINTS TO CONSIDER ===\n" + notes
     return cv_text.strip()

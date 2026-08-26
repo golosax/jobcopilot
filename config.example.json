@@ -7,7 +7,6 @@
   "candidate_linkedin": "",
   "extra_notes": "",
   "match_threshold": 70,
-  "generate_cover_letter": true,
   "min_delay_sec": 15,
   "max_delay_sec": 90,
   "max_jobs_per_run": 0,

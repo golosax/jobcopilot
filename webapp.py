@@ -4,6 +4,7 @@ and browse matches.json / visited.json.
 Run:  .venv/bin/python webapp.py   then open http://127.0.0.1:5000
 """
 import io
+import json
 import logging
 import os
 import threading
@@ -19,7 +20,7 @@ from flask import (
     url_for,
 )
 
-from src import runner, settings
+from src import cover_letter, runner, settings
 from src.store import Store
 
 load_dotenv()
@@ -75,6 +76,28 @@ def _cv_status():
     return {"exists": True, "chars": len(text), "preview": snippet}
 
 
+# -- job description (JD) helpers -----------------------------------------
+
+def _load_jd(jd_file):
+    """Load a job_description.py-saved JSON dict, or None if missing/unreadable."""
+    if not jd_file:
+        return None
+    path = os.path.realpath(os.path.join(_OUTPUT_DIR, jd_file))
+    if not path.startswith(os.path.realpath(_OUTPUT_DIR) + os.sep) or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _jd_description(jd_file):
+    """The saved job description text, or "" if there isn't a usable one."""
+    jd = _load_jd(jd_file)
+    return (jd.get("description") or "").strip() if jd else ""
+
+
 # -- form parsing --------------------------------------------------------
 
 def _to_int(value, default):
@@ -95,6 +118,7 @@ def index():
         cv=_cv_status(),
         running=runner.is_running(),
         prompts=settings.PROMPTS,
+        extra_notes_files=settings.extra_notes_files(),
     )
 
 
@@ -109,7 +133,6 @@ def save():
         "candidate_linkedin": f.get("candidate_linkedin", "").strip(),
         "search_url": f.get("search_url", "").strip(),
         "match_threshold": _to_int(f.get("match_threshold"), 70),
-        "generate_cover_letter": f.get("generate_cover_letter") == "on",
         "extra_notes": f.get("extra_notes", ""),
         "global_style_notes": f.get("global_style_notes", ""),
         "match_notes": f.get("match_notes", ""),
@@ -179,16 +202,47 @@ def matches():
         items = sorted(items, key=lambda m: m.get("score", 0))
     elif sort == "desc":
         items = sorted(items, key=lambda m: m.get("score", 0), reverse=True)
+    for m in items:
+        m["jd_description"] = _jd_description(m.get("jd_file"))
     return render_template("matches.html", matches=items, sort=sort)
 
 
 @app.route("/matches/apply", methods=["POST"])
 def matches_apply():
+    # called via fetch() from the checkbox's onchange - no page navigation, so
+    # just acknowledge instead of redirecting back to /matches
     url = request.form.get("url", "")
-    applied = "1" in request.form.getlist("applied")
-    sort = request.form.get("sort", "")
+    applied = request.form.get("applied") == "1"
     if url:
         Store().set_applied(url, applied)
+    return ("", 204)
+
+
+@app.route("/matches/generate-cl", methods=["POST"])
+def matches_generate_cl():
+    url = request.form.get("url", "")
+    sort = request.form.get("sort", "")
+    if url:
+        match = next((m for m in Store().list_matches() if m.get("url") == url), None)
+        if match:
+            description = _jd_description(match.get("jd_file"))
+            if not description:
+                _log("[web] cover letter generation skipped for {} @ {} - no job description saved".format(
+                    match.get("position", ""), match.get("company", "")
+                ))
+                return redirect(url_for("matches", sort=sort) if sort else url_for("matches"))
+            job = {
+                "title": match.get("position", ""),
+                "company": match.get("company", ""),
+                "description": description,
+            }
+            try:
+                cfg = settings.load()
+                cl_file = cover_letter.generate(job, runner.load_cv(), cfg)
+                Store().set_cover_letter(url, cl_file)
+                _log("[web] cover letter generated for {} @ {}".format(job["title"], job["company"]))
+            except Exception as exc:
+                _log("[web] cover letter generation failed: {}".format(exc))
     return redirect(url_for("matches", sort=sort) if sort else url_for("matches"))
 
 
@@ -219,8 +273,8 @@ def output_file(name):
 
 @app.route("/view/<path:name>")
 def view_text(name):
-    # why-fit / cv-suggestions notes only - the cover letter PDF renders fine
-    # natively and doesn't need this
+    # why-fit / cv-suggestions notes only - the cover letter is a downloadable
+    # DOCX, linked directly via output_file() instead
     if not name.lower().endswith(".txt"):
         abort(404)
     path = os.path.realpath(os.path.join(_OUTPUT_DIR, name))
@@ -229,7 +283,59 @@ def view_text(name):
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     title = os.path.basename(name)
-    return render_template("view_text.html", title=title, text=text, back_url=url_for("matches"))
+    sort = request.args.get("sort", "")
+    back_url = url_for("matches", sort=sort) if sort else url_for("matches")
+    return render_template("view_text.html", title=title, text=text, back_url=back_url)
+
+
+@app.route("/view-extra-notes/<path:name>")
+def view_extra_notes(name):
+    # read-only viewer for data/extra_notes/*.txt - no edit route, files are
+    # managed on disk, this is just for visibility from the config page
+    if not name.lower().endswith(".txt"):
+        abort(404)
+    extra_notes_dir = os.path.realpath(settings.EXTRA_NOTES_DIR)
+    path = os.path.realpath(os.path.join(extra_notes_dir, name))
+    if not path.startswith(extra_notes_dir + os.sep) or not os.path.isfile(path):
+        abort(404)
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+    return render_template("view_text.html", title=name, text=text, back_url=url_for("index"))
+
+
+@app.route("/view-jd/<path:name>")
+def view_jd(name):
+    # formats a job_description.py JSON file into readable text and renders it
+    # through the same reading page used for why-fit/cv-suggestions - linked
+    # from both the Matches and Visited tabs, covers matches and non-matches alike
+    if not name.lower().endswith(".json"):
+        abort(404)
+    jd = _load_jd(name)
+    if jd is None:
+        abort(404)
+    lines = [
+        "Title: {}".format(jd.get("title", "")),
+        "Company: {}".format(jd.get("company", "")),
+        "Score: {}%".format(jd.get("score")) if jd.get("score") is not None else "Score: —",
+    ]
+    if jd.get("matched"):
+        lines.append("Matched: {}".format(", ".join(jd["matched"])))
+    if jd.get("missing"):
+        lines.append("Missing: {}".format(", ".join(jd["missing"])))
+    if jd.get("reason"):
+        lines.append("Reason: {}".format(jd["reason"]))
+    lines.append("")
+    lines.append(jd.get("description", ""))
+    text = "\n".join(lines)
+    origin = "matches" if request.args.get("from") == "matches" else "visited"
+    sort = request.args.get("sort", "")
+    if origin == "matches":
+        back_url = url_for("matches", sort=sort) if sort else url_for("matches")
+    else:
+        back_url = url_for("visited")
+    return render_template(
+        "view_text.html", title=os.path.basename(name), text=text, back_url=back_url, back_label=origin
+    )
 
 
 if __name__ == "__main__":

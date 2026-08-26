@@ -7,7 +7,7 @@ import threading
 
 from dotenv import load_dotenv
 
-from . import cover_letter, cv_suggestions, matcher, runlog, settings, why_fit
+from . import cv_suggestions, job_description, matcher, runlog, settings, why_fit
 from .browser import Browser
 from .store import Store
 
@@ -123,19 +123,23 @@ def run(on_log=print):
                     score = result["score"]
                     emit("[{}%] {} @ {}".format(score, job["title"], job["company"]))
 
+                    # JD is saved for every scored job (match or not), so a
+                    # low/no-score job is still auditable later from the
+                    # Visited tab, not just actual matches
+                    try:
+                        jd_file = job_description.save(job, result, cfg)
+                    except Exception as exc:
+                        emit("[job_description] failed: {}".format(exc))
+                        jd_file = None
+
                     if score >= threshold:
                         # generation tasks get the raw CV, not eff_cv - extra_notes is
                         # matching guidance ("treat AI roles as priority"), not CV
                         # content, and leaking it in here made the model narrate its
                         # own instruction-following into the generated text
-                        if cfg.get("generate_cover_letter", True):
-                            try:
-                                cl_file = cover_letter.generate(job, cv_text, cfg)
-                            except Exception as exc:
-                                emit("[cover_letter] failed: {}".format(exc))
-                                cl_file = None
-                        else:
-                            cl_file = None
+                        #
+                        # cover letters are never auto-generated here - only on
+                        # demand, via the "Generate CL" button on the Matches page
                         try:
                             why_file = why_fit.generate(job, cv_text, cfg)
                         except Exception as exc:
@@ -151,21 +155,22 @@ def run(on_log=print):
                                 "url": job["url"],
                                 "position": job["title"],
                                 "company": job["company"],
-                                "cover_letter": cl_file,
+                                "cover_letter": None,
                                 "why_fit_file": why_file,
                                 "cv_suggestions_file": cvtips_file,
+                                "jd_file": jd_file,
                                 "score": score,
                                 "applied": False,
                             }
                         )
                         matched += 1
                         emit(
-                            "  -> match saved (CL: {}, why: {}, cv tips: {})".format(
-                                cl_file, why_file, cvtips_file
+                            "  -> match saved (why: {}, cv tips: {})".format(
+                                why_file, cvtips_file
                             )
                         )
 
-                    store.mark_visited(job["url"], job.get("company", ""), job.get("title", ""))
+                    store.mark_visited(job["url"], job.get("company", ""), job.get("title", ""), jd_file=jd_file)
                 except Exception as exc:
                     emit("[matcher] failed for {}: {}".format(job["job_id"], exc))
 

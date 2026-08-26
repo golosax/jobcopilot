@@ -15,7 +15,7 @@
   {% else %}
   <table>
     <thead>
-      <tr><th>Company</th><th>Position</th><th>Link</th><th></th></tr>
+      <tr><th>Company</th><th>Position</th><th>Link</th><th>JD</th><th></th></tr>
     </thead>
     <tbody>
       {% for it in items %}
@@ -23,6 +23,7 @@
         <td>{{ it.company or '—' }}</td>
         <td>{{ it.position or '—' }}</td>
         <td><a href="{{ it.url }}" target="_blank">open</a></td>
+        <td>{% if it.jd_file %}<a href="{{ url_for('view_jd', name=it.jd_file, from='visited') }}" target="_blank">open</a>{% else %}—{% endif %}</td>
         <td>
           <form method="post" action="{{ url_for('visited_delete') }}">
             <input type="hidden" name="url" value="{{ it.url }}">

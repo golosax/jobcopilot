@@ -1,8 +1,8 @@
 """Persistence for visited jobs and matched results.
 
-visited.json holds every job already processed (url + company + position), so
-re-runs skip them before clicking the card or calling Claude. matches.json holds
-the >= threshold results.
+visited.json holds every job already processed (url + company + position +
+jd_file), so re-runs skip them before clicking the card or calling Claude.
+matches.json holds the >= threshold results.
 """
 import json
 import os
@@ -42,12 +42,13 @@ class Store:
         raw = _load(_VISITED_PATH, [])
         for item in raw:
             if isinstance(item, str):  # legacy: bare url
-                self._visited[item] = {"url": item, "company": "", "position": ""}
+                self._visited[item] = {"url": item, "company": "", "position": "", "jd_file": None}
             elif isinstance(item, dict) and item.get("url"):
                 self._visited[item["url"]] = {
                     "url": item["url"],
                     "company": item.get("company", ""),
                     "position": item.get("position", ""),
+                    "jd_file": item.get("jd_file"),
                 }
 
     def _migrate_legacy_seen(self):
@@ -58,7 +59,7 @@ class Store:
             return
         for job_id in legacy:
             url = job_url(job_id)
-            self._visited[url] = {"url": url, "company": "", "position": ""}
+            self._visited[url] = {"url": url, "company": "", "position": "", "jd_file": None}
         self._flush_visited()
         print("[store] migrated {} entries from seen_jobs.json".format(len(legacy)))
 
@@ -69,8 +70,8 @@ class Store:
     def visited(self, url):
         return url in self._visited
 
-    def mark_visited(self, url, company="", position=""):
-        self._visited[url] = {"url": url, "company": company, "position": position}
+    def mark_visited(self, url, company="", position="", jd_file=None):
+        self._visited[url] = {"url": url, "company": company, "position": position, "jd_file": jd_file}
         self._flush_visited()
 
     def list_visited(self):
@@ -106,6 +107,16 @@ class Store:
         for m in self._matches:
             if m.get("url") == url:
                 m["applied"] = bool(applied)
+                changed = True
+        if changed:
+            self._flush_matches()
+        return changed
+
+    def set_cover_letter(self, url, cl_file):
+        changed = False
+        for m in self._matches:
+            if m.get("url") == url:
+                m["cover_letter"] = cl_file
                 changed = True
         if changed:
             self._flush_matches()

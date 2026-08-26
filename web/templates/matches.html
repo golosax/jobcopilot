@@ -20,6 +20,7 @@
         </th>
         <th>Position</th>
         <th>Company</th>
+        <th>JD</th>
         <th>Cover letter</th>
         <th>Why fit</th>
         <th>CV suggestions</th>
@@ -32,16 +33,36 @@
         <td><span class="pill {{ 'good' if m.score >= 70 else '' }}">{{ m.score }}%</span></td>
         <td><a href="{{ m.url }}" target="_blank">{{ m.position }}</a></td>
         <td>{{ m.company }}</td>
-        <td>{% if m.cover_letter %}<a href="{{ url_for('output_file', name=m.cover_letter) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>{% if m.why_fit_file %}<a href="{{ url_for('view_text', name=m.why_fit_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('view_text', name=m.cv_suggestions_file) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.jd_file %}<a href="{{ url_for('view_jd', name=m.jd_file, from='matches', sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td style="white-space:nowrap">
+          {% if m.cover_letter %}
+            <span style="display:inline-flex; align-items:center; gap:8px">
+              <a href="{{ url_for('output_file', name=m.cover_letter) }}" target="_blank">open</a>
+              {% if m.jd_description %}
+                <form method="post" action="{{ url_for('matches_generate_cl') }}" style="display:inline">
+                  <input type="hidden" name="url" value="{{ m.url }}">
+                  <input type="hidden" name="sort" value="{{ sort }}">
+                  <button class="secondary" type="submit" style="padding:2px 10px;font-size:12px">regenerate</button>
+                </form>
+              {% else %}
+                <button class="secondary" type="button" disabled title="No job description saved for this match"
+                        style="padding:2px 10px;font-size:12px">regenerate</button>
+              {% endif %}
+            </span>
+          {% elif m.jd_description %}
+            <form method="post" action="{{ url_for('matches_generate_cl') }}">
+              <input type="hidden" name="url" value="{{ m.url }}">
+              <input type="hidden" name="sort" value="{{ sort }}">
+              <button class="secondary" type="submit">Generate CL</button>
+            </form>
+          {% else %}
+            <button class="secondary" type="button" disabled title="No job description saved for this match">Generate CL</button>
+          {% endif %}
+        </td>
+        <td>{% if m.why_fit_file %}<a href="{{ url_for('view_text', name=m.why_fit_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('view_text', name=m.cv_suggestions_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
         <td>
-          <form method="post" action="{{ url_for('matches_apply') }}" onchange="this.requestSubmit()">
-            <input type="hidden" name="url" value="{{ m.url }}">
-            <input type="hidden" name="sort" value="{{ sort }}">
-            <input type="hidden" name="applied" value="0">
-            <input type="checkbox" name="applied" value="1" {% if m.applied %}checked{% endif %}>
-          </form>
+          <input type="checkbox" class="applied-checkbox" data-url="{{ m.url }}" {% if m.applied %}checked{% endif %}>
         </td>
       </tr>
       {% endfor %}
@@ -49,4 +70,15 @@
   </table>
   {% endif %}
 </div>
+
+<script>
+document.querySelectorAll(".applied-checkbox").forEach(function (cb) {
+  cb.addEventListener("change", function () {
+    const body = new URLSearchParams({ url: cb.dataset.url, applied: cb.checked ? "1" : "0" });
+    fetch("{{ url_for('matches_apply') }}", { method: "POST", body: body }).catch(function () {
+      cb.checked = !cb.checked; // couldn't save - revert so the checkbox doesn't lie
+    });
+  });
+});
+</script>
 {% endblock %}

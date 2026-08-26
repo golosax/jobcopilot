@@ -33,14 +33,20 @@
     <div class="hint">pdf / docx / txt — text is extracted and stored in data/cv.txt</div>
     <br><button class="secondary" type="submit">Upload CV</button>
   </form>
+  <label>Additional points (summed with the CV when matching)</label>
+  {% if extra_notes_files %}
+    <div class="hint">Files in <code>data/extra_notes/</code> are active and take priority over this field — see the list under Job matching → Your instructions.</div>
+  {% endif %}
+  <textarea name="extra_notes" form="cfgform">{{ cfg.extra_notes }}</textarea>
+  <div class="hint">Extra skills / preferences you want weighted against the job description.</div>
 </div>
 
-<form method="post" action="{{ url_for('save') }}">
+<form method="post" action="{{ url_for('save') }}" id="cfgform">
   <div class="card">
     <h2>Cover letter</h2>
-    <label class="check"><input type="checkbox" id="generate_cover_letter" name="generate_cover_letter" {% if cfg.generate_cover_letter %}checked{% endif %} onchange="toggleContactFields()"> Generate cover letter</label>
-    <div class="hint">Off skips the cover-letter PDF (and its AI call) for every match; why-fit and CV suggestions are unaffected. The contact fields below are only used for the cover-letter header, so they're locked when this is off.</div>
-    <div class="row" style="margin-top:10px">
+    <p class="sub">Cover letters are never generated automatically during a scan - use the
+      "Generate CL" button on the Matches page for whichever matches you want one for.</p>
+    <div class="row">
       <div>
         <label>Location</label>
         <input type="text" id="candidate_location" name="candidate_location" value="{{ cfg.candidate_location }}" placeholder="City, Country">
@@ -75,9 +81,6 @@
     </div>
     <label>Search URL</label>
     <input type="url" name="search_url" value="{{ cfg.search_url }}">
-    <label>Additional points (summed with the CV when matching)</label>
-    <textarea name="extra_notes">{{ cfg.extra_notes }}</textarea>
-    <div class="hint">Extra skills / preferences you want weighted against the job description.</div>
   </div>
 
   <div class="card">
@@ -100,6 +103,12 @@
       <div class="hint">Structural — cannot be edited. Placeholders {cv} {title} {company} {description} are filled automatically.</div>
       <label>Your instructions (editable)</label>
       <textarea name="{{ p.notes_key }}" placeholder="Optional: add your own guidance/tone/rules for this task">{{ cfg[p.notes_key] }}</textarea>
+      {% if p.key == 'match' and extra_notes_files %}
+      <div class="hint">Currently active — files below (<code>data/extra_notes/</code> takes priority over the "Additional points" field on the CV card):</div>
+      <ul class="hint" style="margin:4px 0 0 18px; padding:0">
+        {% for f in extra_notes_files %}<li><a href="{{ url_for('view_extra_notes', name=f) }}" target="_blank">{{ f }}</a></li>{% endfor %}
+      </ul>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
@@ -147,16 +156,5 @@ async function poll() {
   } catch (e) {}
 }
 setInterval(poll, 2500); poll();
-
-function toggleContactFields() {
-  const on = document.getElementById('generate_cover_letter').checked;
-  ['candidate_location', 'candidate_email', 'candidate_phone', 'candidate_linkedin'].forEach(function (id) {
-    const el = document.getElementById(id);
-    el.readOnly = !on;
-    el.style.background = on ? '' : 'var(--soft)';
-    el.style.color = on ? '' : 'var(--muted)';
-  });
-}
-toggleContactFields();
 </script>
 {% endblock %}
