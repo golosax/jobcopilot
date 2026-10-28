@@ -33,12 +33,6 @@
     <div class="hint">pdf / docx / txt — text is extracted and stored in data/cv.txt</div>
     <br><button class="secondary" type="submit">Upload CV</button>
   </form>
-  <label>Additional points (summed with the CV when matching)</label>
-  {% if extra_notes_files %}
-    <div class="hint">Files in <code>data/extra_notes/</code> are active and take priority over this field — see the list under Job matching → Your instructions.</div>
-  {% endif %}
-  <textarea name="extra_notes" form="cfgform">{{ cfg.extra_notes }}</textarea>
-  <div class="hint">Extra skills / preferences you want weighted against the job description.</div>
 </div>
 
 <form method="post" action="{{ url_for('save') }}" id="cfgform">
@@ -103,10 +97,10 @@
       <div class="hint">Structural — cannot be edited. Placeholders {cv} {title} {company} {description} are filled automatically.</div>
       <label>Your instructions (editable)</label>
       <textarea name="{{ p.notes_key }}" placeholder="Optional: add your own guidance/tone/rules for this task">{{ cfg[p.notes_key] }}</textarea>
-      {% if p.key == 'match' and extra_notes_files %}
-      <div class="hint">Currently active — files below (<code>data/extra_notes/</code> takes priority over the "Additional points" field on the CV card):</div>
+      {% if p.key == 'match' and matching_notes_files %}
+      <div class="hint">Currently active — files below (<code>data/matching_notes/</code> takes priority over this field):</div>
       <ul class="hint" style="margin:4px 0 0 18px; padding:0">
-        {% for f in extra_notes_files %}<li><a href="{{ url_for('view_extra_notes', name=f) }}" target="_blank">{{ f }}</a></li>{% endfor %}
+        {% for f in matching_notes_files %}<li><a href="{{ url_for('view_matching_notes', name=f) }}" target="_blank">{{ f }}</a></li>{% endfor %}
       </ul>
       {% endif %}
     </div>

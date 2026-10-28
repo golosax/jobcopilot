@@ -1,7 +1,8 @@
 """Scores a job description against the CV using Claude.
 
 The structural prompt is hardcoded in settings (read-only); the user's editable
-match_notes are appended at send time.
+match_notes (plus any data/matching_notes/*.txt, which take priority - see
+settings.effective_match_notes()) are appended at send time.
 """
 import os
 
@@ -17,7 +18,7 @@ def _build_prompt(job, cv_text, cfg):
         title=job.get("title", ""),
         company=job.get("company", ""),
         description=job.get("description", ""),
-        notes=cfg.get("match_notes", ""),
+        notes=settings.effective_match_notes(cfg),
         global_notes=cfg.get("global_style_notes", ""),
     )
 
@@ -34,8 +35,8 @@ if __name__ == "__main__":
     #   .venv/bin/python -m src.matcher
     # paste the job description into data/manual_jd.txt (not into the terminal -
     # a large paste there can trip bracketed-paste/shell warnings) and re-run;
-    # everything else (CV, extra_notes, match_notes, global style rules, score())
-    # is the exact same code path the real run uses
+    # everything else (CV, matching_notes, match_notes, global style rules,
+    # score()) is the exact same code path the real run uses
     import sys
 
     from . import runner
@@ -54,14 +55,13 @@ if __name__ == "__main__":
     cv_text = runner.load_cv()
     if not cv_text:
         sys.exit("no CV found - upload one in the backoffice first")
-    eff_cv = settings.effective_cv(cfg, cv_text)
 
     job = {"title": "", "company": "", "description": description}
 
     print("=== PROMPT SENT TO THE MODEL ===")
-    print(_build_prompt(job, eff_cv, cfg))
+    print(_build_prompt(job, cv_text, cfg))
     print("=== END PROMPT ===\n")
 
-    result = score(job, eff_cv, cfg)
+    result = score(job, cv_text, cfg)
     print("=== RESULT ===")
     print(result)

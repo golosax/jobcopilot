@@ -8,8 +8,10 @@ import json
 import logging
 import os
 import threading
+import time
 
 from dotenv import load_dotenv
+from markupsafe import Markup, escape
 from flask import (
     Flask,
     abort,
@@ -31,6 +33,9 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 _ROOT = os.path.dirname(__file__)
 _OUTPUT_DIR = os.path.join(_ROOT, "output")
 _CV_PATH = os.path.join(_ROOT, "data", "cv.txt")
+
+# a match counts as new for this long after it is first added
+_NEW_MATCH_WINDOW_SECONDS = 24 * 3600
 
 app = Flask(__name__, template_folder=os.path.join(_ROOT, "web", "templates"))
 
@@ -118,7 +123,7 @@ def index():
         cv=_cv_status(),
         running=runner.is_running(),
         prompts=settings.PROMPTS,
-        extra_notes_files=settings.extra_notes_files(),
+        matching_notes_files=settings.matching_notes_files(),
     )
 
 
@@ -133,7 +138,6 @@ def save():
         "candidate_linkedin": f.get("candidate_linkedin", "").strip(),
         "search_url": f.get("search_url", "").strip(),
         "match_threshold": _to_int(f.get("match_threshold"), 70),
-        "extra_notes": f.get("extra_notes", ""),
         "global_style_notes": f.get("global_style_notes", ""),
         "match_notes": f.get("match_notes", ""),
         "cover_letter_notes": f.get("cover_letter_notes", ""),
@@ -204,7 +208,41 @@ def matches():
         items = sorted(items, key=lambda m: m.get("score", 0), reverse=True)
     for m in items:
         m["jd_description"] = _jd_description(m.get("jd_file"))
-    return render_template("matches.html", matches=items, sort=sort)
+    # one group per company, ordered by first appearance so the chosen sort is kept
+    groups = {}
+    for m in items:
+        groups.setdefault((m.get("company") or "").strip().lower(), []).append(m)
+    now = time.time()
+    for m in items:
+        m["is_new"] = now - m.get("added_at", 0) < _NEW_MATCH_WINDOW_SECONDS
+    grouped = [
+        {
+            "company": g[0].get("company"),
+            "items": g,
+            "top_score": max(m.get("score", 0) for m in g),
+            "newest": max(m.get("added_at", 0) for m in g),
+        }
+        for g in groups.values()
+    ]
+    for g in grouped:
+        g["is_new"] = now - g["newest"] < _NEW_MATCH_WINDOW_SECONDS
+    # without an explicit sort, groups with a recently added position go to the bottom, newest last
+    if not sort:
+        fresh = sorted((g for g in grouped if g["is_new"]), key=lambda g: g["newest"])
+        grouped = [g for g in grouped if not g["is_new"]] + fresh
+    return render_template("matches.html", matches=items, groups=grouped, sort=sort)
+
+
+@app.route("/matches/status", methods=["POST"])
+def matches_status():
+    # called via fetch() from the radio buttons - no page navigation
+    url = request.form.get("url", "")
+    status = request.form.get("status", "")
+    if status not in ("", "applied", "not_available", "not_interested"):
+        return ("", 400)
+    if url:
+        Store().set_status(url, status)
+    return ("", 204)
 
 
 @app.route("/matches/apply", methods=["POST"])
@@ -218,32 +256,57 @@ def matches_apply():
     return ("", 204)
 
 
+@app.route("/matches/not-available", methods=["POST"])
+def matches_not_available():
+    # called via fetch() from the checkbox's onchange - no page navigation, so
+    # just acknowledge instead of redirecting back to /matches
+    url = request.form.get("url", "")
+    not_available = request.form.get("not_available") == "1"
+    if url:
+        Store().set_not_available(url, not_available)
+    return ("", 204)
+
+
+@app.route("/matches/not-interested", methods=["POST"])
+def matches_not_interested():
+    # called via fetch() from the checkbox's onchange - no page navigation
+    url = request.form.get("url", "")
+    not_interested = request.form.get("not_interested") == "1"
+    if url:
+        Store().set_not_interested(url, not_interested)
+    return ("", 204)
+
+
 @app.route("/matches/generate-cl", methods=["POST"])
 def matches_generate_cl():
+    # called via fetch() from the Matches page - no page navigation, so the
+    # button state updates in place instead of a full reload resetting scroll
     url = request.form.get("url", "")
-    sort = request.form.get("sort", "")
-    if url:
-        match = next((m for m in Store().list_matches() if m.get("url") == url), None)
-        if match:
-            description = _jd_description(match.get("jd_file"))
-            if not description:
-                _log("[web] cover letter generation skipped for {} @ {} - no job description saved".format(
-                    match.get("position", ""), match.get("company", "")
-                ))
-                return redirect(url_for("matches", sort=sort) if sort else url_for("matches"))
-            job = {
-                "title": match.get("position", ""),
-                "company": match.get("company", ""),
-                "description": description,
-            }
-            try:
-                cfg = settings.load()
-                cl_file = cover_letter.generate(job, runner.load_cv(), cfg)
-                Store().set_cover_letter(url, cl_file)
-                _log("[web] cover letter generated for {} @ {}".format(job["title"], job["company"]))
-            except Exception as exc:
-                _log("[web] cover letter generation failed: {}".format(exc))
-    return redirect(url_for("matches", sort=sort) if sort else url_for("matches"))
+    if not url:
+        return {"ok": False, "error": "missing url"}, 400
+    match = next((m for m in Store().list_matches() if m.get("url") == url), None)
+    if not match:
+        return {"ok": False, "error": "match not found"}, 404
+    description = _jd_description(match.get("jd_file"))
+    if not description:
+        _log("[web] cover letter generation skipped for {} @ {} - no job description saved".format(
+            match.get("position", ""), match.get("company", "")
+        ))
+        return {"ok": False, "error": "No job description saved for this match"}, 400
+    job = {
+        "title": match.get("position", ""),
+        "company": match.get("company", ""),
+        "description": description,
+    }
+    try:
+        cfg = settings.load()
+        cl_file = cover_letter.generate(job, runner.load_cv(), cfg)
+        Store().set_cover_letter(url, cl_file)
+        _log("[web] cover letter generated for {} @ {}".format(job["title"], job["company"]))
+        return {"ok": True, "file_url": url_for("output_file", name=cl_file)}
+    except Exception as exc:
+        _log("[web] cover letter generation failed: {}".format(exc))
+        return {"ok": False, "error": str(exc)}, 500
 
 
 @app.route("/visited")
@@ -288,15 +351,15 @@ def view_text(name):
     return render_template("view_text.html", title=title, text=text, back_url=back_url)
 
 
-@app.route("/view-extra-notes/<path:name>")
-def view_extra_notes(name):
-    # read-only viewer for data/extra_notes/*.txt - no edit route, files are
+@app.route("/view-matching-notes/<path:name>")
+def view_matching_notes(name):
+    # read-only viewer for data/matching_notes/*.txt - no edit route, files are
     # managed on disk, this is just for visibility from the config page
     if not name.lower().endswith(".txt"):
         abort(404)
-    extra_notes_dir = os.path.realpath(settings.EXTRA_NOTES_DIR)
-    path = os.path.realpath(os.path.join(extra_notes_dir, name))
-    if not path.startswith(extra_notes_dir + os.sep) or not os.path.isfile(path):
+    matching_notes_dir = os.path.realpath(settings.MATCHING_NOTES_DIR)
+    path = os.path.realpath(os.path.join(matching_notes_dir, name))
+    if not path.startswith(matching_notes_dir + os.sep) or not os.path.isfile(path):
         abort(404)
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
@@ -313,20 +376,20 @@ def view_jd(name):
     jd = _load_jd(name)
     if jd is None:
         abort(404)
-    lines = [
-        "Title: {}".format(jd.get("title", "")),
-        "Company: {}".format(jd.get("company", "")),
-        "Score: {}%".format(jd.get("score")) if jd.get("score") is not None else "Score: —",
+    # (key, value) pairs - keys are rendered bold so they stand out when scanning the page
+    fields = [
+        ("Title", jd.get("title", "")),
+        ("Company", jd.get("company", "")),
+        ("Score", "{}%".format(jd.get("score")) if jd.get("score") is not None else "—"),
     ]
     if jd.get("matched"):
-        lines.append("Matched: {}".format(", ".join(jd["matched"])))
+        fields.append(("Matched", ", ".join(jd["matched"])))
     if jd.get("missing"):
-        lines.append("Missing: {}".format(", ".join(jd["missing"])))
+        fields.append(("Missing", ", ".join(jd["missing"])))
     if jd.get("reason"):
-        lines.append("Reason: {}".format(jd["reason"]))
-    lines.append("")
-    lines.append(jd.get("description", ""))
-    text = "\n".join(lines)
+        fields.append(("Reason", jd["reason"]))
+    text = Markup("\n").join(Markup("<strong>{}:</strong> {}").format(k, v) for k, v in fields)
+    text += Markup("\n\n") + escape(jd.get("description", ""))
     origin = "matches" if request.args.get("from") == "matches" else "visited"
     sort = request.args.get("sort", "")
     if origin == "matches":

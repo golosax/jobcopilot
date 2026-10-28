@@ -6,6 +6,7 @@ matches.json holds the >= threshold results.
 """
 import json
 import os
+import time
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 _OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
@@ -92,6 +93,21 @@ class Store:
 
     def append_match(self, entry):
         entry.setdefault("applied", False)
+        for m in self._matches:
+            if m.get("url") == entry.get("url"):
+                # re-scored on a later run - update in place instead of adding
+                # a duplicate row, but don't lose "applied" or an existing
+                # cover letter that isn't part of the new scoring result
+                applied = m.get("applied", False) or entry.get("applied", False)
+                cover_letter = entry.get("cover_letter")
+                if cover_letter is None:
+                    cover_letter = m.get("cover_letter")
+                m.update(entry)
+                m["applied"] = applied
+                m["cover_letter"] = cover_letter
+                self._flush_matches()
+                return
+        entry.setdefault("added_at", int(time.time()))
         self._matches.append(entry)
         self._flush_matches()
 
@@ -102,11 +118,44 @@ class Store:
     def list_matches(self):
         return list(self._matches)
 
+    def set_status(self, url, status):
+        # applied / not_available / not_interested are mutually exclusive; empty clears all
+        fields = ("applied", "not_available", "not_interested")
+        changed = False
+        for m in self._matches:
+            if m.get("url") == url:
+                for f in fields:
+                    m[f] = (f == status)
+                changed = True
+        if changed:
+            self._flush_matches()
+        return changed
+
     def set_applied(self, url, applied):
         changed = False
         for m in self._matches:
             if m.get("url") == url:
                 m["applied"] = bool(applied)
+                changed = True
+        if changed:
+            self._flush_matches()
+        return changed
+
+    def set_not_available(self, url, not_available):
+        changed = False
+        for m in self._matches:
+            if m.get("url") == url:
+                m["not_available"] = bool(not_available)
+                changed = True
+        if changed:
+            self._flush_matches()
+        return changed
+
+    def set_not_interested(self, url, not_interested):
+        changed = False
+        for m in self._matches:
+            if m.get("url") == url:
+                m["not_interested"] = bool(not_interested)
                 changed = True
         if changed:
             self._flush_matches()

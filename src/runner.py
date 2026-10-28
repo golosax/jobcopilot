@@ -99,7 +99,6 @@ def run(on_log=print):
             emit("[runner] set LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env")
             return
 
-        eff_cv = settings.effective_cv(cfg, cv_text)
         threshold = cfg["match_threshold"]
         lo, hi = cfg["min_delay_sec"], cfg["max_delay_sec"]
         max_jobs = cfg.get("max_jobs_per_run", 0)
@@ -119,7 +118,7 @@ def run(on_log=print):
                     break
                 processed += 1
                 try:
-                    result = matcher.score(job, eff_cv, cfg)
+                    result = matcher.score(job, cv_text, cfg)
                     score = result["score"]
                     emit("[{}%] {} @ {}".format(score, job["title"], job["company"]))
 
@@ -133,11 +132,6 @@ def run(on_log=print):
                         jd_file = None
 
                     if score >= threshold:
-                        # generation tasks get the raw CV, not eff_cv - extra_notes is
-                        # matching guidance ("treat AI roles as priority"), not CV
-                        # content, and leaking it in here made the model narrate its
-                        # own instruction-following into the generated text
-                        #
                         # cover letters are never auto-generated here - only on
                         # demand, via the "Generate CL" button on the Matches page
                         try:

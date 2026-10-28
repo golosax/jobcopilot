@@ -5,7 +5,6 @@
   "candidate_email": "",
   "candidate_phone": "",
   "candidate_linkedin": "",
-  "extra_notes": "",
   "match_threshold": 70,
   "min_delay_sec": 15,
   "max_delay_sec": 90,

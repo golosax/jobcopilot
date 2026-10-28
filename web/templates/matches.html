@@ -1,6 +1,72 @@
 {% extends "base.html" %}
 {% block title %}JobCopilot · Matches{% endblock %}
 {% block body %}
+{% macro match_row(m, gid=none) %}
+      <tr class="{{ 'row-done' if m.applied or m.not_available or m.not_interested else '' }}{{ ' group-child' if gid else '' }}"{% if gid %} data-group="{{ gid }}" hidden{% endif %}>
+        <td><span class="pill {{ 'good' if m.score >= 70 else '' }}">{{ m.score }}%</span></td>
+        <td><a href="{{ m.url }}" target="_blank">{{ m.position }}</a></td>
+        <td>{{ m.company }}{% if m.is_new %} <span class="new-badge">New</span>{% endif %}</td>
+        <td>{% if m.jd_file %}<a href="{{ url_for('view_jd', name=m.jd_file, from='matches', sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td style="white-space:nowrap">
+          <span class="cl-cell" data-url="{{ m.url }}">
+          {% if m.cover_letter %}
+            <span style="display:inline-flex; align-items:center; gap:8px">
+              <a href="{{ url_for('output_file', name=m.cover_letter) }}" target="_blank" class="cl-open">open</a>
+              {% if m.jd_description %}
+                <button class="secondary cl-generate" type="button" style="padding:2px 10px;font-size:12px">regenerate</button>
+              {% else %}
+                <button class="secondary" type="button" disabled title="No job description saved for this match"
+                        style="padding:2px 10px;font-size:12px">regenerate</button>
+              {% endif %}
+            </span>
+          {% elif m.jd_description %}
+            <button class="secondary cl-generate" type="button">Generate CL</button>
+          {% else %}
+            <button class="secondary" type="button" disabled title="No job description saved for this match">Generate CL</button>
+          {% endif %}
+          </span>
+        </td>
+        <td>{% if m.why_fit_file %}<a href="{{ url_for('view_text', name=m.why_fit_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('view_text', name=m.cv_suggestions_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>
+          <input type="radio" class="status-radio" name="status-{{ m.url }}" value="applied" data-url="{{ m.url }}" {% if m.applied %}checked{% endif %}>
+        </td>
+        <td>
+          <input type="radio" class="status-radio" name="status-{{ m.url }}" value="not_available" data-url="{{ m.url }}" {% if m.not_available %}checked{% endif %}>
+        </td>
+        <td>
+          <input type="radio" class="status-radio" name="status-{{ m.url }}" value="not_interested" data-url="{{ m.url }}" {% if m.not_interested %}checked{% endif %}>
+        </td>
+      </tr>
+{% endmacro %}
+<style>
+  .table-wrap { overflow:visible; }
+  tr.row-done td { background:var(--soft); color:var(--muted); }
+  tr.row-done td a { color:var(--muted); }
+  tr.row-done .pill { background:var(--line); }
+  tr.group-head { cursor:pointer; }
+  tr.group-head td, tr.group-head.row-done td { background:color-mix(in srgb, var(--accent) 9%, var(--panel));
+    border-bottom:1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); }
+  tr.group-head td:first-child { box-shadow:inset 4px 0 0 var(--accent); }
+  tr.group-head:hover td, tr.group-head.row-done:hover td { background:color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+  tr.group-head[aria-expanded="true"] td, tr.group-head.row-done[aria-expanded="true"] td {
+    background:color-mix(in srgb, var(--accent) 20%, var(--panel)); }
+  tr.group-head.row-done td { color:var(--muted); }
+  tr.group-head .pill { background:color-mix(in srgb, var(--accent) 18%, var(--panel)); color:var(--accent); }
+  tr.group-head .chev { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px;
+    margin-right:6px; border-radius:50%; background:var(--accent); color:var(--accent-ink); font-size:11px;
+    transition:transform .15s; }
+  tr.group-head[aria-expanded="true"] .chev { transform:rotate(90deg); }
+  tr.group-head .toggle-hint { margin-left:10px; font-size:12px; color:var(--accent); font-weight:600; }
+  tr.group-head .toggle-hint::before { content:"Show positions"; }
+  tr.group-head[aria-expanded="true"] .toggle-hint::before { content:"Hide positions"; }
+  tr.group-child td:first-child { box-shadow:inset 4px 0 0 color-mix(in srgb, var(--accent) 45%, var(--panel)); }
+  tr.group-child td:nth-child(3) { padding-left:28px; color:var(--muted); }
+  .new-badge { display:inline-block; margin-left:6px; padding:1px 8px; border-radius:20px; background:var(--accent);
+    color:var(--accent-ink); font-size:11px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; }
+  .applied-badge { margin-left:8px; font-size:12px; color:var(--good); font-weight:600; }
+  .group-applied { color:var(--muted); font-size:12px; }
+</style>
 <div class="card">
   <h2>Matches ({{ matches|length }})</h2>
   <p class="sub">Each match's documents are grouped in <code>output/&lt;company&gt;/</code>. Check
@@ -8,6 +74,7 @@
   {% if not matches %}
     <p class="hint">No matches yet.</p>
   {% else %}
+  <div class="table-wrap">
   <table>
     <thead>
       <tr>
@@ -24,61 +91,132 @@
         <th>Cover letter</th>
         <th>Why fit</th>
         <th>CV suggestions</th>
-        <th>Applied</th>
+        <th>Applied (<span id="applied-count">{{ matches|selectattr('applied')|list|length }}</span>)</th>
+        <th title="Not available anymore">Unavailable (<span id="not-available-count">{{ matches|selectattr('not_available')|list|length }}</span>)</th>
+        <th title="Decided not to apply, e.g. didn't like the position">Won't apply (<span id="not-interested-count">{{ matches|selectattr('not_interested')|list|length }}</span>)</th>
       </tr>
     </thead>
     <tbody>
-      {% for m in matches %}
-      <tr>
-        <td><span class="pill {{ 'good' if m.score >= 70 else '' }}">{{ m.score }}%</span></td>
-        <td><a href="{{ m.url }}" target="_blank">{{ m.position }}</a></td>
-        <td>{{ m.company }}</td>
-        <td>{% if m.jd_file %}<a href="{{ url_for('view_jd', name=m.jd_file, from='matches', sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td style="white-space:nowrap">
-          {% if m.cover_letter %}
-            <span style="display:inline-flex; align-items:center; gap:8px">
-              <a href="{{ url_for('output_file', name=m.cover_letter) }}" target="_blank">open</a>
-              {% if m.jd_description %}
-                <form method="post" action="{{ url_for('matches_generate_cl') }}" style="display:inline">
-                  <input type="hidden" name="url" value="{{ m.url }}">
-                  <input type="hidden" name="sort" value="{{ sort }}">
-                  <button class="secondary" type="submit" style="padding:2px 10px;font-size:12px">regenerate</button>
-                </form>
-              {% else %}
-                <button class="secondary" type="button" disabled title="No job description saved for this match"
-                        style="padding:2px 10px;font-size:12px">regenerate</button>
-              {% endif %}
-            </span>
-          {% elif m.jd_description %}
-            <form method="post" action="{{ url_for('matches_generate_cl') }}">
-              <input type="hidden" name="url" value="{{ m.url }}">
-              <input type="hidden" name="sort" value="{{ sort }}">
-              <button class="secondary" type="submit">Generate CL</button>
-            </form>
-          {% else %}
-            <button class="secondary" type="button" disabled title="No job description saved for this match">Generate CL</button>
-          {% endif %}
+      {% for g in groups %}
+      {% if g['items']|length == 1 %}
+        {{ match_row(g['items'][0]) }}
+      {% else %}
+      {% set gid = loop.index %}
+      <tr class="group-head{{ ' row-done' if g['items']|selectattr('applied')|list|length else '' }}" data-group="{{ gid }}" tabindex="0" role="button" aria-expanded="false">
+        <td><span class="pill {{ 'good' if g.top_score >= 70 else '' }}" title="Best score in this company">{{ g.top_score }}%</span></td>
+        <td colspan="6">
+          <span class="chev">▶</span>
+          <strong>{{ g.company }}</strong>
+          <span class="pill">{{ g['items']|length }} positions</span>
+          {% if g.is_new %}<span class="new-badge">New</span>{% endif %}
+          <span class="toggle-hint"></span>
+          <span class="applied-badge" {% if not g['items']|selectattr('applied')|list|length %}hidden{% endif %}>CV already sent</span>
         </td>
-        <td>{% if m.why_fit_file %}<a href="{{ url_for('view_text', name=m.why_fit_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('view_text', name=m.cv_suggestions_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>
-          <input type="checkbox" class="applied-checkbox" data-url="{{ m.url }}" {% if m.applied %}checked{% endif %}>
-        </td>
+        <td class="group-applied" colspan="3"><span class="group-applied-count">{{ g['items']|selectattr('applied')|list|length }}</span> of {{ g['items']|length }} applied</td>
       </tr>
+      {% for m in g['items'] %}
+        {{ match_row(m, gid) }}
+      {% endfor %}
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 </div>
 
 <script>
-document.querySelectorAll(".applied-checkbox").forEach(function (cb) {
-  cb.addEventListener("change", function () {
-    const body = new URLSearchParams({ url: cb.dataset.url, applied: cb.checked ? "1" : "0" });
-    fetch("{{ url_for('matches_apply') }}", { method: "POST", body: body }).catch(function () {
-      cb.checked = !cb.checked; // couldn't save - revert so the checkbox doesn't lie
+function updateRowState(row) {
+  row.classList.toggle("row-done", row.querySelectorAll(".status-radio:checked").length > 0);
+}
+// company groups - header row toggles its positions
+function toggleGroup(head) {
+  const open = head.getAttribute("aria-expanded") !== "true";
+  head.setAttribute("aria-expanded", open ? "true" : "false");
+  document.querySelectorAll('tr.group-child[data-group="' + head.dataset.group + '"]').forEach(function (r) {
+    r.hidden = !open;
+  });
+}
+document.querySelectorAll("tr.group-head").forEach(function (head) {
+  head.addEventListener("click", function () { toggleGroup(head); });
+  head.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(head); }
+  });
+});
+function updateGroupState(row) {
+  if (!row.classList.contains("group-child")) { return; }
+  const head = document.querySelector('tr.group-head[data-group="' + row.dataset.group + '"]');
+  const applied = document.querySelectorAll('tr.group-child[data-group="' + row.dataset.group + '"] .status-radio[value=applied]:checked').length;
+  head.querySelector(".group-applied-count").textContent = applied;
+  head.querySelector(".applied-badge").hidden = applied === 0;
+  head.classList.toggle("row-done", applied > 0);
+}
+function updateCounts() {
+  [["applied", "applied-count"], ["not_available", "not-available-count"], ["not_interested", "not-interested-count"]]
+    .forEach(function (p) {
+      document.getElementById(p[1]).textContent = document.querySelectorAll(".status-radio[value=" + p[0] + "]:checked").length;
+    });
+}
+
+// radio buttons are mutually exclusive per row; clicking the selected one again clears it
+function setRowStatus(row, status) {
+  row.querySelectorAll(".status-radio").forEach(function (r) { r.checked = (r.value === status); });
+  row.dataset.status = status;
+  updateRowState(row);
+  updateGroupState(row);
+  updateCounts();
+}
+document.querySelectorAll("tr").forEach(function (row) {
+  const radios = row.querySelectorAll(".status-radio");
+  if (!radios.length) { return; }
+  const checked = row.querySelector(".status-radio:checked");
+  row.dataset.status = checked ? checked.value : "";
+  radios.forEach(function (radio) {
+    radio.addEventListener("mousedown", function () { radio.dataset.was = radio.checked ? "1" : ""; });
+    radio.addEventListener("click", function () {
+      const previous = row.dataset.status;
+      const status = radio.dataset.was === "1" ? "" : radio.value;
+      radio.dataset.was = "";
+      setRowStatus(row, status);
+      const body = new URLSearchParams({ url: radio.dataset.url, status: status });
+      fetch("{{ url_for('matches_status') }}", { method: "POST", body: body }).then(function (resp) {
+        if (!resp.ok) { throw new Error("save failed"); }
+      }).catch(function () {
+        setRowStatus(row, previous); // couldn't save - revert so the buttons don't lie
+      });
     });
   });
 });
+
+// cover letter generate/regenerate - fetch() in place, no page navigation,
+// so scroll position and sort order survive
+function wireGenerateButton(btn) {
+  btn.addEventListener("click", function () {
+    const cell = btn.closest(".cl-cell");
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Generating...";
+    const body = new URLSearchParams({ url: cell.dataset.url });
+    fetch("{{ url_for('matches_generate_cl') }}", { method: "POST", body: body })
+      .then(function (resp) { return resp.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          throw new Error(data.error || "Cover letter generation failed");
+        }
+        cell.innerHTML =
+          '<span style="display:inline-flex; align-items:center; gap:8px">' +
+          '<a href="' + data.file_url + '" target="_blank" class="cl-open">open</a>' +
+          '<button class="secondary cl-generate" type="button" style="padding:2px 10px;font-size:12px">regenerate</button>' +
+          '</span>';
+        wireGenerateButton(cell.querySelector(".cl-generate"));
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        alert(err.message || "Cover letter generation failed");
+      });
+  });
+}
+document.querySelectorAll(".cl-generate").forEach(wireGenerateButton);
 </script>
 {% endblock %}
