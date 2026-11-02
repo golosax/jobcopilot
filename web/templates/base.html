@@ -68,6 +68,7 @@
       <a href="{{ url_for('index') }}">Config</a>
       <a href="{{ url_for('matches') }}">Matches</a>
       <a href="{{ url_for('visited') }}">Visited</a>
+      <a href="{{ url_for('accounts') }}">{{ current_user.username if current_user else 'Select account' }}</a>
     </nav>
   </header>
   <main>{% block body %}{% endblock %}</main>

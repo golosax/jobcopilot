@@ -4,16 +4,21 @@ Does NOT call Claude or open individual jobs. Uses the persisted browser session
 """
 import sys
 
-from src import settings
+from src import database, settings
 from src.browser import Browser
 
 
 def main():
-    cfg = settings.load()
+    if len(sys.argv) < 2:
+        sys.exit("usage: python scripts/probe_pages.py <username> [pages]")
+    user = database.user_by_name(sys.argv[1])
+    if not user:
+        sys.exit("unknown username")
+    cfg = settings.load(user["id"])
     url = cfg["search_url"]
-    pages_to_check = int(sys.argv[1]) if len(sys.argv) > 1 else 8
+    pages_to_check = int(sys.argv[2]) if len(sys.argv) > 2 else 8
 
-    b = Browser(headless=cfg.get("headless", False), chrome_version=cfg.get("chrome_version"))
+    b = Browser(user_id=user["id"], headless=cfg.get("headless", False), chrome_version=cfg.get("chrome_version"))
     try:
         b.open_search(url)
         first_ids = []

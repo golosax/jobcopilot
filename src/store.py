@@ -1,180 +1,95 @@
-"""Persistence for visited jobs and matched results.
-
-visited.json holds every job already processed (url + company + position +
-jd_file), so re-runs skip them before clicking the card or calling Claude.
-matches.json holds the >= threshold results.
-"""
+"""Per-user job and match access."""
 import json
-import os
 import time
+from datetime import datetime
 
-_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
-_VISITED_PATH = os.path.join(_OUTPUT_DIR, "visited.json")
-_MATCHES_PATH = os.path.join(_OUTPUT_DIR, "matches.json")
-_LEGACY_SEEN_PATH = os.path.join(_DATA_DIR, "seen_jobs.json")
+from . import database
 
 
 def job_url(job_id):
     return "https://www.linkedin.com/jobs/view/{}/".format(job_id)
 
 
-def _load(path, default):
-    if not os.path.exists(path):
-        return default
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return default
-
-
 class Store:
-    def __init__(self):
-        os.makedirs(_OUTPUT_DIR, exist_ok=True)
-        self._visited = {}  # url -> {url, company, position}
-        self._load_visited()
-        self._matches = _load(_MATCHES_PATH, [])
-        self._migrate_legacy_seen()
-
-    # -- visited ---------------------------------------------------------
-
-    def _load_visited(self):
-        raw = _load(_VISITED_PATH, [])
-        for item in raw:
-            if isinstance(item, str):  # legacy: bare url
-                self._visited[item] = {"url": item, "company": "", "position": "", "jd_file": None}
-            elif isinstance(item, dict) and item.get("url"):
-                self._visited[item["url"]] = {
-                    "url": item["url"],
-                    "company": item.get("company", ""),
-                    "position": item.get("position", ""),
-                    "jd_file": item.get("jd_file"),
-                }
-
-    def _migrate_legacy_seen(self):
-        if os.path.exists(_VISITED_PATH):
-            return
-        legacy = _load(_LEGACY_SEEN_PATH, None)
-        if not legacy:
-            return
-        for job_id in legacy:
-            url = job_url(job_id)
-            self._visited[url] = {"url": url, "company": "", "position": "", "jd_file": None}
-        self._flush_visited()
-        print("[store] migrated {} entries from seen_jobs.json".format(len(legacy)))
-
-    def _flush_visited(self):
-        with open(_VISITED_PATH, "w", encoding="utf-8") as f:
-            json.dump(list(self._visited.values()), f, indent=2, ensure_ascii=False)
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self._visited_urls = {j["url"] for j in database.list_jobs(user_id, visited_only=True)}
 
     def visited(self, url):
-        return url in self._visited
+        return url in self._visited_urls
+
+    def save_job(self, job, result):
+        database.upsert_job(self.user_id, job["url"], company=job.get("company", ""),
+                            position=job.get("title", ""), description=job.get("description", ""),
+                            score=result.get("score"), matched=json.dumps(result.get("matched")),
+                            missing=json.dumps(result.get("missing")), reason=result.get("reason"),
+                            scored_at=datetime.now().isoformat(timespec="seconds"))
 
     def mark_visited(self, url, company="", position="", jd_file=None):
-        self._visited[url] = {"url": url, "company": company, "position": position, "jd_file": jd_file}
-        self._flush_visited()
+        existing = next((j for j in database.list_jobs(self.user_id) if j["url"] == url), None)
+        values = {"visited": True}
+        if not existing:
+            values.update(company=company, position=position)
+        database.upsert_job(self.user_id, url, **values)
+        self._visited_urls.add(url)
 
     def list_visited(self):
-        return list(self._visited.values())
+        return [dict(j, jd_file=j["url"] if j["description"] else None)
+                for j in database.list_jobs(self.user_id, visited_only=True)]
 
     def remove_visited(self, url):
-        if url in self._visited:
-            del self._visited[url]
-            self._flush_visited()
-            return True
-        return False
+        removed = bool(database.remove_visited(self.user_id, url))
+        self._visited_urls.discard(url)
+        return removed
 
     def clear_visited(self):
-        self._visited = {}
-        self._flush_visited()
-
-    # -- matches ---------------------------------------------------------
+        database.remove_visited(self.user_id)
+        self._visited_urls.clear()
 
     def append_match(self, entry):
-        entry.setdefault("applied", False)
-        for m in self._matches:
-            if m.get("url") == entry.get("url"):
-                # re-scored on a later run - update in place instead of adding
-                # a duplicate row, but don't lose "applied" or an existing
-                # cover letter that isn't part of the new scoring result
-                applied = m.get("applied", False) or entry.get("applied", False)
-                cover_letter = entry.get("cover_letter")
-                if cover_letter is None:
-                    cover_letter = m.get("cover_letter")
-                m.update(entry)
-                m["applied"] = applied
-                m["cover_letter"] = cover_letter
-                self._flush_matches()
-                return
-        entry.setdefault("added_at", int(time.time()))
-        self._matches.append(entry)
-        self._flush_matches()
-
-    def _flush_matches(self):
-        with open(_MATCHES_PATH, "w", encoding="utf-8") as f:
-            json.dump(self._matches, f, indent=2, ensure_ascii=False)
+        url = entry["url"]
+        old = next((m for m in database.list_matches(self.user_id) if m["url"] == url), None)
+        values = dict(company=entry.get("company", ""), position=entry.get("position", ""),
+                      score=entry.get("score"), why_fit=entry.get("why_fit"),
+                      cv_suggestions=entry.get("cv_suggestions"))
+        if old:
+            values["why_fit"] = values["why_fit"] if values["why_fit"] is not None else old["why_fit"]
+            values["cv_suggestions"] = values["cv_suggestions"] if values["cv_suggestions"] is not None else old["cv_suggestions"]
+        else:
+            values["added_at"] = entry.get("added_at", int(time.time()))
+        database.upsert_match(self.user_id, url, **values)
 
     def list_matches(self):
-        return list(self._matches)
+        job_map = {j["url"]: j for j in database.list_jobs(self.user_id)}
+        pdf_map = {d["url"]: d["id"] for d in database.list_documents(self.user_id) if d["kind"] == "pdf"}
+        return [dict(m, applied=m["status"] == "applied",
+                     not_available=m["status"] == "not_available",
+                     not_interested=m["status"] == "not_interested",
+                     jd_file=m["url"] if job_map.get(m["url"], {}).get("description") else None,
+                     cover_letter=m["cover_letter_id"], cover_letter_pdf=pdf_map.get(m["url"]),
+                     why_fit_file=m["url"] if m["why_fit"] is not None else None,
+                     cv_suggestions_file=m["url"] if m["cv_suggestions"] is not None else None)
+                for m in database.list_matches(self.user_id)]
 
     def set_status(self, url, status):
-        # applied / not_available / not_interested are mutually exclusive; empty clears all
-        fields = ("applied", "not_available", "not_interested")
-        changed = False
-        for m in self._matches:
-            if m.get("url") == url:
-                for f in fields:
-                    m[f] = (f == status)
-                changed = True
-        if changed:
-            self._flush_matches()
-        return changed
+        return database.edit_match(self.user_id, url, {"status": status}) == "ok"
 
-    def set_applied(self, url, applied):
-        changed = False
-        for m in self._matches:
-            if m.get("url") == url:
-                m["applied"] = bool(applied)
-                changed = True
-        if changed:
-            self._flush_matches()
-        return changed
+    def set_applied(self, url, value):
+        return self.set_status(url, "applied" if value else "")
 
-    def set_not_available(self, url, not_available):
-        changed = False
-        for m in self._matches:
-            if m.get("url") == url:
-                m["not_available"] = bool(not_available)
-                changed = True
-        if changed:
-            self._flush_matches()
-        return changed
+    def set_not_available(self, url, value):
+        return self.set_status(url, "not_available" if value else "")
 
-    def set_not_interested(self, url, not_interested):
-        changed = False
-        for m in self._matches:
-            if m.get("url") == url:
-                m["not_interested"] = bool(not_interested)
-                changed = True
-        if changed:
-            self._flush_matches()
-        return changed
+    def set_not_interested(self, url, value):
+        return self.set_status(url, "not_interested" if value else "")
 
-    def set_cover_letter(self, url, cl_file):
-        changed = False
-        for m in self._matches:
-            if m.get("url") == url:
-                m["cover_letter"] = cl_file
-                changed = True
-        if changed:
-            self._flush_matches()
-        return changed
+    def set_cover_letter(self, url, doc_id):
+        return database.edit_match(self.user_id, url, {"cover_letter_id": doc_id}) == "ok"
 
     @property
     def visited_count(self):
-        return len(self._visited)
+        return len(self._visited_urls)
 
     @property
     def match_count(self):
-        return len(self._matches)
+        return len(database.list_matches(self.user_id))

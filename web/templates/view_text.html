@@ -26,6 +26,11 @@
     <p class="filename"><a href="{{ back_url }}">← back to {{ back_label|default('matches') }}</a> &nbsp;·&nbsp; {{ title }}</p>
     <div class="paper">
       <div class="text">{{ text }}</div>
+      {% if edit_field %}<form method="post" action="{{ url_for('edit_match') }}">
+        <input type="hidden" name="url" value="{{ edit_url }}"><input type="hidden" name="field" value="{{ edit_field }}">
+        <p><label for="value">Edit text</label></p><textarea id="value" name="value" style="width:100%;min-height:180px">{{ text }}</textarea>
+        <p><button type="submit">Save</button></p>
+      </form>{% endif %}
     </div>
   </main>
 </body>

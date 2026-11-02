@@ -6,28 +6,24 @@
         <td><span class="pill {{ 'good' if m.score >= 70 else '' }}">{{ m.score }}%</span></td>
         <td><a href="{{ m.url }}" target="_blank">{{ m.position }}</a></td>
         <td>{{ m.company }}{% if m.is_new %} <span class="new-badge">New</span>{% endif %}</td>
-        <td>{% if m.jd_file %}<a href="{{ url_for('view_jd', name=m.jd_file, from='matches', sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if m.jd_file %}<a href="{{ url_for('view_jd', url=m.jd_file, from='matches', sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
         <td style="white-space:nowrap">
           <span class="cl-cell" data-url="{{ m.url }}">
           {% if m.cover_letter %}
             <span style="display:inline-flex; align-items:center; gap:8px">
               <a href="{{ url_for('output_file', name=m.cover_letter) }}" target="_blank" class="cl-open">open</a>
-              {% if m.jd_description %}
-                <button class="secondary cl-generate" type="button" style="padding:2px 10px;font-size:12px">regenerate</button>
-              {% else %}
-                <button class="secondary" type="button" disabled title="No job description saved for this match"
-                        style="padding:2px 10px;font-size:12px">regenerate</button>
-              {% endif %}
+              {% if m.cover_letter_pdf %}<a href="{{ url_for('output_file', name=m.cover_letter_pdf) }}">PDF</a>{% endif %}
             </span>
-          {% elif m.jd_description %}
+          {% elif m.jd_description and not viewer_mode %}
             <button class="secondary cl-generate" type="button">Generate CL</button>
-          {% else %}
+          {% elif not viewer_mode %}
             <button class="secondary" type="button" disabled title="No job description saved for this match">Generate CL</button>
           {% endif %}
           </span>
         </td>
-        <td>{% if m.why_fit_file %}<a href="{{ url_for('view_text', name=m.why_fit_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('view_text', name=m.cv_suggestions_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td><a href="{{ url_for('view_text', url=m.url, field='why_fit', sort=sort or none) }}" target="_blank">{{ 'open' if m.why_fit_file else 'add' }}</a></td>
+        <td><a href="{{ url_for('view_text', url=m.url, field='cv_suggestions', sort=sort or none) }}" target="_blank">{{ 'open' if m.cv_suggestions_file else 'add' }}</a></td>
+        <td><form method="post" action="{{ url_for('edit_match') }}"><input type="hidden" name="url" value="{{ m.url }}"><input type="hidden" name="field" value="note"><input name="value" value="{{ m.note }}" placeholder="Personal note"><button class="secondary" type="submit">save</button></form></td>
         <td>
           <input type="radio" class="status-radio" name="status-{{ m.url }}" value="applied" data-url="{{ m.url }}" {% if m.applied %}checked{% endif %}>
         </td>
@@ -69,8 +65,7 @@
 </style>
 <div class="card">
   <h2>Matches ({{ matches|length }})</h2>
-  <p class="sub">Each match's documents are grouped in <code>output/&lt;company&gt;/</code>. Check
-    "Applied" once you've submitted an application, so you don't apply twice.</p>
+  <p class="sub">Check "Applied" once you've submitted an application, so you don't apply twice.</p>
   {% if not matches %}
     <p class="hint">No matches yet.</p>
   {% else %}
@@ -91,6 +86,7 @@
         <th>Cover letter</th>
         <th>Why fit</th>
         <th>CV suggestions</th>
+        <th>Personal note</th>
         <th>Applied (<span id="applied-count">{{ matches|selectattr('applied')|list|length }}</span>)</th>
         <th title="Not available anymore">Unavailable (<span id="not-available-count">{{ matches|selectattr('not_available')|list|length }}</span>)</th>
         <th title="Decided not to apply, e.g. didn't like the position">Won't apply (<span id="not-interested-count">{{ matches|selectattr('not_interested')|list|length }}</span>)</th>
@@ -104,7 +100,7 @@
       {% set gid = loop.index %}
       <tr class="group-head{{ ' row-done' if g['items']|selectattr('applied')|list|length else '' }}" data-group="{{ gid }}" tabindex="0" role="button" aria-expanded="false">
         <td><span class="pill {{ 'good' if g.top_score >= 70 else '' }}" title="Best score in this company">{{ g.top_score }}%</span></td>
-        <td colspan="6">
+        <td colspan="7">
           <span class="chev">▶</span>
           <strong>{{ g.company }}</strong>
           <span class="pill">{{ g['items']|length }} positions</span>
@@ -206,9 +202,7 @@ function wireGenerateButton(btn) {
         cell.innerHTML =
           '<span style="display:inline-flex; align-items:center; gap:8px">' +
           '<a href="' + data.file_url + '" target="_blank" class="cl-open">open</a>' +
-          '<button class="secondary cl-generate" type="button" style="padding:2px 10px;font-size:12px">regenerate</button>' +
-          '</span>';
-        wireGenerateButton(cell.querySelector(".cl-generate"));
+           '</span>';
       })
       .catch(function (err) {
         btn.disabled = false;

@@ -11,20 +11,20 @@ from . import llm, settings
 _MANUAL_JD_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "data", "manual_jd.txt"))
 
 
-def _build_prompt(job, cv_text, cfg):
+def _build_prompt(job, cv_text, cfg, user_id):
     return settings.compose(
         settings.MATCH_SYSTEM,
         cv=cv_text,
         title=job.get("title", ""),
         company=job.get("company", ""),
         description=job.get("description", ""),
-        notes=settings.effective_match_notes(cfg),
+        notes=settings.effective_match_notes(cfg, user_id),
         global_notes=cfg.get("global_style_notes", ""),
     )
 
 
-def score(job, cv_text, cfg):
-    prompt = _build_prompt(job, cv_text, cfg)
+def score(job, cv_text, cfg, user_id):
+    prompt = _build_prompt(job, cv_text, cfg, user_id)
     result = llm.complete_json(prompt, model=settings.active_model(cfg), backend=cfg.get("llm_backend", "claude"))
     result["score"] = int(result.get("score", 0))
     return result
@@ -51,17 +51,22 @@ if __name__ == "__main__":
     if not description:
         sys.exit("{} is empty - paste the job description in there and re-run".format(_MANUAL_JD_PATH))
 
-    cfg = settings.load()
-    cv_text = runner.load_cv()
+    from . import database
+    users = database.list_users()
+    if not users:
+        sys.exit("create a user in the web app first")
+    user_id = users[0]["id"]
+    cfg = settings.load(user_id)
+    cv_text = runner.load_cv(user_id)
     if not cv_text:
         sys.exit("no CV found - upload one in the backoffice first")
 
     job = {"title": "", "company": "", "description": description}
 
     print("=== PROMPT SENT TO THE MODEL ===")
-    print(_build_prompt(job, cv_text, cfg))
+    print(_build_prompt(job, cv_text, cfg, user_id))
     print("=== END PROMPT ===\n")
 
-    result = score(job, cv_text, cfg)
+    result = score(job, cv_text, cfg, user_id)
     print("=== RESULT ===")
     print(result)

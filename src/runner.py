@@ -7,20 +7,24 @@ import threading
 
 from dotenv import load_dotenv
 
-from . import cv_suggestions, job_description, matcher, runlog, settings, why_fit
+from . import cv_suggestions, database, matcher, runlog, settings, why_fit
 from .browser import Browser
 from .store import Store
 
-_CV_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "cv.txt")
 
 # simple single-run guard shared with the web app
 _lock = threading.Lock()
 _running = False
+_running_user = None
 _stop = threading.Event()
 
 
 def is_running():
     return _running
+
+
+def running_user():
+    return _running_user
 
 
 def request_stop():
@@ -60,32 +64,31 @@ def _stop_keep_awake(proc):
         pass
 
 
-def load_cv():
-    if not os.path.exists(_CV_PATH):
-        return ""
-    with open(_CV_PATH, "r", encoding="utf-8") as f:
-        return f.read().strip()
+def load_cv(user_id):
+    row = database.get_settings(user_id)
+    return (row["cv_text"] or "").strip() if row else ""
 
 
-def run(on_log=print):
+def run(user_id, on_log=print):
     """Run one full analysis pass. `on_log(str)` receives progress lines."""
     def emit(msg):
         runlog.log(msg)
         on_log(msg)
 
-    global _running
+    global _running, _running_user
     with _lock:
         if _running:
             emit("[runner] a run is already in progress")
             return
         _running = True
+        _running_user = user_id
     _stop.clear()
     keep_awake = _start_keep_awake(emit)
 
     try:
         load_dotenv()
-        cfg = settings.load()
-        cv_text = load_cv()
+        cfg = settings.load(user_id)
+        cv_text = load_cv(user_id)
         if not cv_text:
             emit("[runner] no CV found - upload one first")
             return
@@ -93,10 +96,14 @@ def run(on_log=print):
             emit("[runner] no search_url configured")
             return
 
-        email = os.environ.get("LINKEDIN_EMAIL")
-        password = os.environ.get("LINKEDIN_PASSWORD")
+        account_credentials = database.get_credentials(user_id) or {}
+        email = account_credentials.get("email")
+        password = account_credentials.get("password")
+        if not email and cfg.get("_legacy_browser_profile"):
+            email = os.environ.get("LINKEDIN_EMAIL")
+            password = os.environ.get("LINKEDIN_PASSWORD")
         if not email or not password:
-            emit("[runner] set LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env")
+            emit("[runner] save LinkedIn credentials for this account")
             return
 
         threshold = cfg["match_threshold"]
@@ -104,8 +111,10 @@ def run(on_log=print):
         max_jobs = cfg.get("max_jobs_per_run", 0)
         max_pages = cfg.get("max_pages", 0)
 
-        store = Store()
-        browser = Browser(headless=cfg.get("headless", False), chrome_version=cfg.get("chrome_version"), on_log=emit)
+        store = Store(user_id)
+        browser = Browser(user_id=user_id, headless=cfg.get("headless", False),
+                          chrome_version=cfg.get("chrome_version"), on_log=emit,
+                          legacy_profile=bool(cfg.get("_legacy_browser_profile")))
         processed = matched = 0
 
         try:
@@ -118,53 +127,46 @@ def run(on_log=print):
                     break
                 processed += 1
                 try:
-                    result = matcher.score(job, cv_text, cfg)
+                    result = matcher.score(job, cv_text, cfg, user_id)
                     score = result["score"]
                     emit("[{}%] {} @ {}".format(score, job["title"], job["company"]))
 
                     # JD is saved for every scored job (match or not), so a
                     # low/no-score job is still auditable later from the
                     # Visited tab, not just actual matches
-                    try:
-                        jd_file = job_description.save(job, result, cfg)
-                    except Exception as exc:
-                        emit("[job_description] failed: {}".format(exc))
-                        jd_file = None
+                    store.save_job(job, result)
 
                     if score >= threshold:
                         # cover letters are never auto-generated here - only on
                         # demand, via the "Generate CL" button on the Matches page
                         try:
-                            why_file = why_fit.generate(job, cv_text, cfg)
+                            why_text = why_fit.generate_text(job, cv_text, cfg)
                         except Exception as exc:
                             emit("[why_fit] failed: {}".format(exc))
-                            why_file = None
+                            why_text = None
                         try:
-                            cvtips_file = cv_suggestions.generate(job, cv_text, cfg)
+                            cvtips_text = cv_suggestions.generate_text(job, cv_text, cfg)
                         except Exception as exc:
                             emit("[cv_suggestions] failed: {}".format(exc))
-                            cvtips_file = None
+                            cvtips_text = None
                         store.append_match(
                             {
                                 "url": job["url"],
                                 "position": job["title"],
                                 "company": job["company"],
-                                "cover_letter": None,
-                                "why_fit_file": why_file,
-                                "cv_suggestions_file": cvtips_file,
-                                "jd_file": jd_file,
+                                "why_fit": why_text,
+                                "cv_suggestions": cvtips_text,
                                 "score": score,
-                                "applied": False,
                             }
                         )
                         matched += 1
                         emit(
                             "  -> match saved (why: {}, cv tips: {})".format(
-                                why_file, cvtips_file
+                                bool(why_text), bool(cvtips_text)
                             )
                         )
 
-                    store.mark_visited(job["url"], job.get("company", ""), job.get("title", ""), jd_file=jd_file)
+                    store.mark_visited(job["url"], job.get("company", ""), job.get("title", ""))
                 except Exception as exc:
                     emit("[matcher] failed for {}: {}".format(job["job_id"], exc))
 
@@ -185,4 +187,5 @@ def run(on_log=print):
         )
     finally:
         _running = False
+        _running_user = None
         _stop_keep_awake(keep_awake)

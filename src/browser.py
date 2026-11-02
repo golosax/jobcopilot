@@ -24,8 +24,9 @@ _PAGE_SIZE = 25
 
 
 class Browser:
-    def __init__(self, headless=False, chrome_version=None, on_log=None):
-        os.makedirs(_PROFILE_DIR, exist_ok=True)
+    def __init__(self, user_id, headless=False, chrome_version=None, on_log=None, legacy_profile=False):
+        profile_dir = _PROFILE_DIR if legacy_profile else os.path.join(_PROFILE_DIR, user_id)
+        os.makedirs(profile_dir, exist_ok=True)
         self._on_log = on_log
         options = uc.ChromeOptions()
         options.add_argument("--start-maximized")
@@ -33,7 +34,7 @@ class Browser:
         options.add_argument("--no-default-browser-check")
         self.driver = uc.Chrome(
             options=options,
-            user_data_dir=_PROFILE_DIR,
+            user_data_dir=profile_dir,
             headless=headless,
             version_main=chrome_version,
         )

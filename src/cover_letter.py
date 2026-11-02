@@ -22,13 +22,12 @@ def generate_text(job, cv_text, cfg):
     return llm.complete(prompt, model=settings.active_model(cfg), backend=cfg.get("llm_backend", "claude")).strip()
 
 
-def render_docx(job, body_text, cfg):
+def render_docx(job, body_text, cfg, directory):
     name = cfg.get("candidate_name", "Candidate")
     company = job.get("company", "")
     title = job.get("title", "")
-    abs_dir, rel_dir = settings.match_dir(company)
-    filename = settings.unique_filename(abs_dir, "CL_{}.docx".format(settings.slug(name)))
-    path = os.path.join(abs_dir, filename)
+    filename = "CL_{}_{}.docx".format(settings.slug(name), settings.slug(company))
+    path = os.path.join(directory, filename)
 
     contact_parts = [
         p for p in [
@@ -67,14 +66,14 @@ def render_docx(job, body_text, cfg):
     doc.add_paragraph(name)
 
     doc.save(path)
-    return "{}/{}".format(rel_dir, filename)
+    return path
 
 
 def convert_to_pdf(docx_path):
     """Render a .docx to .pdf next to it via headless LibreOffice - the PDF is a
     direct rendering of the same document, so its content always matches.
     """
-    abs_path = os.path.join(settings.OUTPUT_DIR, docx_path)
+    abs_path = docx_path
     out_dir = os.path.dirname(abs_path)
     with tempfile.TemporaryDirectory() as profile_dir:
         subprocess.run(
@@ -85,14 +84,25 @@ def convert_to_pdf(docx_path):
             ],
             check=True, capture_output=True, timeout=60,
         )
-    return os.path.splitext(docx_path)[0] + ".pdf"
+    pdf_path = os.path.splitext(docx_path)[0] + ".pdf"
+    if not os.path.isfile(pdf_path):
+        raise RuntimeError("cover letter PDF was not created")
+    return pdf_path
 
 
-def generate(job, cv_text, cfg):
+def generate(job, cv_text, cfg, user_id, url):
     """Return the relative path (company_folder/filename.docx) of the cover letter.
     A .pdf rendering of the same file is saved alongside it.
     """
+    from . import database
+
     body = generate_text(job, cv_text, cfg)
-    docx_rel = render_docx(job, body, cfg)
-    convert_to_pdf(docx_rel)
-    return docx_rel
+    with tempfile.TemporaryDirectory() as directory:
+        docx_path = render_docx(job, body, cfg, directory)
+        pdf_path = convert_to_pdf(docx_path)
+        with open(docx_path, "rb") as f:
+            docx_content = f.read()
+        with open(pdf_path, "rb") as f:
+            pdf_content = f.read()
+        return database.store_cover_letter(user_id, url, os.path.basename(docx_path), docx_content,
+                                           os.path.basename(pdf_path), pdf_content)

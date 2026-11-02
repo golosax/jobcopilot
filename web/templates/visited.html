@@ -4,10 +4,10 @@
 <div class="card">
   <div class="actions" style="justify-content:space-between">
     <h2 style="margin:0">Visited jobs ({{ count }})</h2>
-    <form method="post" action="{{ url_for('visited_clear') }}"
+    {% if not viewer_mode %}<form method="post" action="{{ url_for('visited_clear') }}"
           onsubmit="return confirm('Remove ALL visited entries? They will be re-analyzed next run.');">
       <button class="danger" type="submit">Remove all</button>
-    </form>
+    </form>{% endif %}
   </div>
   <p class="hint">These are skipped on the next run (checked by URL before clicking or calling Claude).</p>
   {% if not items %}
@@ -24,12 +24,12 @@
         <td>{{ it.company or '—' }}</td>
         <td>{{ it.position or '—' }}</td>
         <td><a href="{{ it.url }}" target="_blank">open</a></td>
-        <td>{% if it.jd_file %}<a href="{{ url_for('view_jd', name=it.jd_file, from='visited') }}" target="_blank">open</a>{% else %}—{% endif %}</td>
-        <td>
+        <td>{% if it.jd_file %}<a href="{{ url_for('view_jd', url=it.jd_file, from='visited') }}" target="_blank">open</a>{% else %}—{% endif %}</td>
+        <td>{% if not viewer_mode %}
           <form method="post" action="{{ url_for('visited_delete') }}">
             <input type="hidden" name="url" value="{{ it.url }}">
             <button class="danger" type="submit">remove</button>
-          </form>
+          </form>{% endif %}
         </td>
       </tr>
       {% endfor %}

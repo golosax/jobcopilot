@@ -8,13 +8,9 @@ Prompts have two parts:
     adapt; it is concatenated onto the structural prompt at send time.
 """
 import json
-import os
-import shutil
 
-_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.json")
-_EXAMPLE_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.example.json")
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
-MATCHING_NOTES_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "matching_notes")
+from . import database
+
 
 # ---------------------------------------------------------------------------
 # STRUCTURAL PROMPTS - hardcoded and read-only. Do not load these from config;
@@ -156,31 +152,17 @@ DEFAULTS = {
 }
 
 
-def load():
-    # first run on a fresh clone: config.json is gitignored (it holds personal
-    # info), so bootstrap it from the tracked example rather than silently
-    # running on blank defaults with no signal that setup is needed
-    if not os.path.exists(_CONFIG_PATH) and os.path.exists(_EXAMPLE_CONFIG_PATH):
-        shutil.copyfile(_EXAMPLE_CONFIG_PATH, _CONFIG_PATH)
-        print("[settings] created config.json from config.example.json - open the backoffice to fill in your details")
-
+def load(user_id):
     cfg = dict(DEFAULTS)
-    if os.path.exists(_CONFIG_PATH):
-        try:
-            with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg.update(json.load(f))
-        except (json.JSONDecodeError, OSError):
-            pass
+    row = database.get_settings(user_id)
+    if row:
+        cfg.update(json.loads(row["config"]))
     return cfg
 
 
-def save(values):
+def save(user_id, values):
     """Merge `values` into the stored config and write it back."""
-    cfg = load()
-    cfg.update(values)
-    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-    return cfg
+    return database.save_config(user_id, values)
 
 
 def fill_prompt(template, cv="", title="", company="", description=""):
@@ -216,30 +198,20 @@ def active_model(cfg):
     return cfg.get("claude_model") or None
 
 
-def matching_notes_files():
+def matching_notes_files(user_id):
     """Sorted list of .txt filenames in data/matching_notes/, or [] if the
     directory doesn't exist or is empty.
     """
-    if not os.path.isdir(MATCHING_NOTES_DIR):
-        return []
-    return sorted(f for f in os.listdir(MATCHING_NOTES_DIR) if f.lower().endswith(".txt"))
+    return [g["name"] for g in database.list_guidance(user_id)]
 
 
-def _read_matching_notes_files():
+def _read_matching_notes_files(user_id):
     """Combined content of every file in data/matching_notes/, in filename order."""
-    parts = []
-    for name in matching_notes_files():
-        try:
-            with open(os.path.join(MATCHING_NOTES_DIR, name), "r", encoding="utf-8") as f:
-                text = f.read().strip()
-        except OSError:
-            continue
-        if text:
-            parts.append(text)
+    parts = [g["content"].strip() for g in database.list_guidance(user_id) if g["content"].strip()]
     return "\n\n".join(parts)
 
 
-def effective_match_notes(cfg):
+def effective_match_notes(cfg, user_id):
     """Matching guidance appended to the MATCH_SYSTEM prompt (never the CV, and
     never the generation tasks - cover letter / why-fit / CV suggestions).
 
@@ -248,7 +220,7 @@ def effective_match_notes(cfg):
     back to the match_notes config field when that directory is empty or
     missing.
     """
-    notes = _read_matching_notes_files()
+    notes = _read_matching_notes_files(user_id)
     if not notes:
         notes = (cfg.get("match_notes") or "").strip()
     return notes
@@ -266,28 +238,3 @@ def slug(text):
             out.append("_")
             prev_us = True
     return "".join(out).strip("_") or "unknown"
-
-
-def match_dir(company):
-    """Return (absolute_dir, relative_dir) for a company's grouped output folder,
-    creating it if needed. All docs for a match (cover letter, why-fit, CV
-    suggestions) are grouped under output/<company_slug>/.
-    """
-    rel_dir = slug(company)
-    abs_dir = os.path.join(OUTPUT_DIR, rel_dir)
-    os.makedirs(abs_dir, exist_ok=True)
-    return abs_dir, rel_dir
-
-
-def unique_filename(abs_dir, filename):
-    """Avoid silently overwriting a different job's file with the same name
-    (e.g. two matched openings at the same company): append _2, _3, ... if the
-    exact filename already exists.
-    """
-    if not os.path.exists(os.path.join(abs_dir, filename)):
-        return filename
-    stem, ext = os.path.splitext(filename)
-    n = 2
-    while os.path.exists(os.path.join(abs_dir, "{}_{}{}".format(stem, n, ext))):
-        n += 1
-    return "{}_{}{}".format(stem, n, ext)
