@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}JobCopilot · Adjust CV{% endblock %}
+{% block body %}
+<style>
+  .sbs { border:1px solid var(--line); border-radius:10px; max-height:75vh; overflow:auto; background:var(--panel); }
+  .sbs-head, .sbs-row { display:grid; grid-template-columns:1fr 1fr; }
+  .sbs-head { position:sticky; top:0; z-index:2; background:var(--soft); border-bottom:1px solid var(--line);
+    font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); }
+  .sbs-head > div, .cell { padding:6px 14px; }
+  .sbs-head > div:first-child, .cell.left { border-right:1px solid var(--line); }
+  .cell { font:13px/1.55 ui-monospace,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .sbs-row.changed .cell.left, .sbs-row.removed .cell.left { background:#fbe3dc; }
+  .sbs-row.changed .cell.right, .sbs-row.added .cell.right { background:#dff1e3; }
+  .cell.empty { background:repeating-linear-gradient(135deg, var(--soft) 0 6px, var(--panel) 6px 12px) !important; }
+  ins.a { background:#a6dbb2; text-decoration:none; border-radius:3px; padding:0 2px; }
+  del.d { background:#f1b4a3; color:var(--danger); border-radius:3px; padding:0 2px; }
+  .skill { display:inline-block; margin:0 6px 6px 0; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:600; }
+  .skill.miss { background:#fbe9e3; color:var(--accent); }
+  .skill.have { background:#e8f1ea; color:var(--good); }
+  .legend { font-size:12px; color:var(--muted); margin:0 0 12px; }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; }
+  #msg { font-size:13px; }
+</style>
+<div class="card">
+  <a href="{{ back_url }}" style="font-size:13px">← back to matches</a>
+  <h2 style="margin-top:10px">Adjust CV to position</h2>
+  <p class="sub">{{ match.position }} · {{ match.company }}</p>
+  {% if not has_jd %}
+    <p class="hint">No job description is saved for this match, so the CV can't be adjusted.</p>
+  {% else %}
+  <p class="hint" style="margin:0 0 10px">Upload your CV as a Word file. The AI tailors it using the CV suggestions for this job,
+    and nothing is saved until you accept the changes. Text edits keep paragraph styling, but mixed bold/italic inside one
+    edited paragraph is flattened to the first run's style.</p>
+  <input type="file" id="file" accept=".docx" hidden>
+  <div class="bar" style="margin-top:0">
+    <button type="button" class="secondary" id="pick">Choose .docx file</button>
+    <span id="fname" class="hint"></span>
+    <button type="button" id="process" disabled>Adjust</button>
+  </div>
+  <label for="extra" style="margin-top:14px">Extra instructions (optional)</label>
+  <textarea id="extra" rows="2" placeholder="e.g. keep it to one page, emphasise Kotlin"></textarea>
+  <p id="msg" class="hint"></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Key skills missing from your CV</h2>
+  {% if missing %}
+    <div style="margin-top:8px">{% for k in missing %}<span class="skill miss">{{ k }}</span>{% endfor %}</div>
+  {% else %}
+    <p class="hint">No missing skills were recorded for this match.</p>
+  {% endif %}
+  {% if matched %}
+    <h2 style="margin-top:14px">Already matched</h2>
+    <div style="margin-top:8px">{% for k in matched %}<span class="skill have">{{ k }}</span>{% endfor %}</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>CV suggestions</h2>
+  {% if suggestions %}
+    <pre style="margin-top:8px">{{ suggestions }}</pre>
+  {% else %}
+    <p class="hint">No CV suggestions saved for this match. They are generated when you click Adjust.</p>
+  {% endif %}
+</div>
+
+{% if has_jd %}
+<div class="card" id="result" hidden>
+  <h2>Proposed changes (<span id="count">0</span>)</h2>
+  <p class="legend">Left: your uploaded CV. Right: the adjusted version. Red = removed, green = added.</p>
+  <div id="diff"></div>
+  <div class="bar">
+    <button type="button" id="accept">Accept and save</button>
+    <button type="button" class="secondary" id="retry">Try again</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var url = {{ match.url|tojson }};
+  var token = "";
+  var $ = function (id) { return document.getElementById(id); };
+  var file = $("file");
+
+  function msg(text, bad) { $("msg").textContent = text; $("msg").style.color = bad ? "var(--danger)" : ""; }
+  function busy(on, label) {
+    ["pick", "process", "accept", "retry"].forEach(function (id) { $(id).disabled = on; });
+    if (on) { msg(label); }
+  }
+
+  $("pick").addEventListener("click", function () { file.click(); });
+  file.addEventListener("change", function () {
+    $("fname").textContent = file.files[0] ? file.files[0].name : "";
+    $("process").disabled = !file.files[0];
+    token = "";
+    $("result").hidden = true;
+  });
+
+  function run(reuse) {
+    var body = new FormData();
+    body.append("url", url);
+    body.append("extra", $("extra").value);
+    if (reuse && token) { body.append("token", token); } else { body.append("file", file.files[0]); }
+    busy(true, "Adjusting, this can take a minute...");
+    $("result").hidden = true;
+    fetch("{{ url_for('adjust_cv_process') }}", { method: "POST", body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { throw new Error(d.error || "Adjustment failed"); }
+        token = d.token;
+        $("diff").innerHTML = d.html;
+        $("count").textContent = d.changed;
+        $("accept").hidden = d.changed === 0;
+        $("result").hidden = false;
+        msg("");
+        $("result").scrollIntoView({ behavior: "smooth" });
+      })
+      .catch(function (e) { msg(e.message, true); })
+      .then(function () { busy(false); $("process").disabled = !file.files[0]; });
+  }
+
+  $("process").addEventListener("click", function () { run(false); });
+  $("retry").addEventListener("click", function () { run(true); });
+  $("accept").addEventListener("click", function () {
+    var body = new URLSearchParams({ url: url, token: token });
+    busy(true, "Saving...");
+    fetch("{{ url_for('adjust_cv_accept') }}", { method: "POST", body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { throw new Error(d.error || "Save failed"); }
+        $("result").hidden = true;
+        token = "";
+        $("msg").innerHTML = "";
+        var a = document.createElement("a");
+        a.href = d.file_url; a.textContent = "output/" + d.file; a.target = "_blank";
+        $("msg").append("Saved: ", a);
+        $("msg").style.color = "var(--good)";
+      })
+      .catch(function (e) { msg(e.message, true); })
+      .then(function () { ["pick", "retry", "accept"].forEach(function (id) { $(id).disabled = false; }); $("process").disabled = !file.files[0]; });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -22,7 +22,7 @@ from flask import (
     url_for,
 )
 
-from src import cover_letter, runner, settings
+from src import cover_letter, cv_adjust, cv_suggestions, runner, settings
 from src.store import Store
 
 load_dotenv()
@@ -143,6 +143,7 @@ def save():
         "cover_letter_notes": f.get("cover_letter_notes", ""),
         "why_fit_notes": f.get("why_fit_notes", ""),
         "cv_suggestions_notes": f.get("cv_suggestions_notes", ""),
+        "cv_adjust_notes": f.get("cv_adjust_notes", ""),
         "min_delay_sec": _to_int(f.get("min_delay_sec"), 15),
         "max_delay_sec": _to_int(f.get("max_delay_sec"), 90),
         "max_pages": _to_int(f.get("max_pages"), 0),
@@ -307,6 +308,99 @@ def matches_generate_cl():
     except Exception as exc:
         _log("[web] cover letter generation failed: {}".format(exc))
         return {"ok": False, "error": str(exc)}, 500
+
+
+# -- adjust CV to a position ----------------------------------------------
+
+def _match_job(url):
+    """(match, job dict) for a match url, or (None, None)."""
+    match = next((m for m in Store().list_matches() if m.get("url") == url), None)
+    if not match:
+        return None, None
+    job = {
+        "title": match.get("position", ""),
+        "company": match.get("company", ""),
+        "description": _jd_description(match.get("jd_file")),
+    }
+    return match, job
+
+
+def _read_output_text(rel):
+    path = os.path.realpath(os.path.join(_OUTPUT_DIR, rel or ""))
+    if not rel or not path.startswith(os.path.realpath(_OUTPUT_DIR) + os.sep) or not os.path.isfile(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().strip()
+
+
+@app.route("/matches/adjust-cv")
+def adjust_cv():
+    url = request.args.get("url", "")
+    match, job = _match_job(url)
+    if not match:
+        abort(404)
+    sort = request.args.get("sort", "")
+    back_url = url_for("matches", sort=sort) if sort else url_for("matches")
+    jd = _load_jd(match.get("jd_file")) or {}
+    return render_template(
+        "adjust_cv.html", match=match, has_jd=bool(job["description"]), back_url=back_url,
+        suggestions=_read_output_text(match.get("cv_suggestions_file")),
+        missing=jd.get("missing") or [], matched=jd.get("matched") or [],
+    )
+
+
+@app.route("/matches/adjust-cv/process", methods=["POST"])
+def adjust_cv_process():
+    url = request.form.get("url", "")
+    match, job = _match_job(url)
+    if not match:
+        return {"ok": False, "error": "match not found"}, 404
+    if not job["description"]:
+        return {"ok": False, "error": "No job description saved for this match"}, 400
+    token = request.form.get("token", "")
+    try:
+        upload = request.files.get("file")
+        if upload and upload.filename:
+            if not upload.filename.lower().endswith(".docx"):
+                return {"ok": False, "error": "Please upload a .docx file"}, 400
+            data = upload.read()
+            try:
+                import docx
+                docx.Document(io.BytesIO(data))
+            except Exception:
+                return {"ok": False, "error": "Could not read the file as a Word document"}, 400
+            token = cv_adjust.new_session(data)
+        original = cv_adjust.original_path(token)
+        cfg = settings.load()
+        suggestions = _read_output_text(match.get("cv_suggestions_file"))
+        if not suggestions:
+            suggestions = cv_suggestions.generate_text(job, runner.load_cv(), cfg)
+        proposed = cv_adjust.proposed_path(token)
+        changed = cv_adjust.propose(original, proposed, job, suggestions, cfg, request.form.get("extra", ""))
+        rows = cv_adjust.diff_rows(original, proposed)
+        _log("[web] CV adjusted for {} @ {}: {} paragraphs changed".format(job["title"], job["company"], changed))
+        return {
+            "ok": True,
+            "token": token,
+            "changed": sum(1 for r in rows if r["kind"] != "equal"),
+            "html": render_template("adjust_cv_diff.html", rows=rows),
+        }
+    except Exception as exc:
+        _log("[web] CV adjustment failed: {}".format(exc))
+        return {"ok": False, "error": str(exc)}, 500
+
+
+@app.route("/matches/adjust-cv/accept", methods=["POST"])
+def adjust_cv_accept():
+    match, job = _match_job(request.form.get("url", ""))
+    if not match:
+        return {"ok": False, "error": "match not found"}, 404
+    try:
+        rel = cv_adjust.save_accepted(request.form.get("token", ""), job, settings.load())
+        _log("[web] adjusted CV saved to output/{}".format(rel))
+        return {"ok": True, "file": rel, "file_url": url_for("output_file", name=rel)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}, 400
 
 
 @app.route("/visited")

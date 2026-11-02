@@ -115,6 +115,34 @@ these instructions themselves.
 Output ONLY the two labelled lists.
 """
 
+CV_ADJUST_SYSTEM = """You are an expert technical resume editor. Tailor the candidate's
+existing CV (a numbered list of paragraphs) to one specific job, using the
+tailoring suggestions provided.
+
+=== JOB ===
+Title: {title}
+Company: {company}
+
+{description}
+
+=== TAILORING SUGGESTIONS ===
+{cv}
+
+=== TASK ===
+Rewrite only the paragraphs that should change for this job: reorder emphasis,
+surface relevant skills and keywords, trim or reword less relevant items.
+Hard rules:
+- Never invent experience, skills, employers, dates, degrees or numbers that are not already in the CV.
+- Do not touch names, contact details, dates, employers or education facts.
+- Job titles and headline/role lines must stay short, plain and standard (for example "Senior Java Developer", "Senior Solution Architect", "Software Engineer"). Never append technologies, stacks, keywords or taglines to them, and never use separators such as "|", "/", "-" or "," to build a title like "Senior Java Backend Engineer | Spring Boot Microservices". Put keywords into summary or bullet text instead.
+- Keep each paragraph's role (heading stays a heading, bullet stays a bullet) and a similar length.
+- Paragraphs marked [locked] must not be changed.
+- Leave everything that does not need to change out of the answer.
+Answer with ONLY a JSON object:
+{"edits": [{"id": <paragraph number>, "text": "<new paragraph text>"}]}
+Use an empty string as text to drop a paragraph.
+"""
+
 # registry so the backoffice can render each task's read-only structure + the
 # editable notes field next to it
 PROMPTS = [
@@ -122,6 +150,7 @@ PROMPTS = [
     {"key": "cover_letter", "label": "Cover letter", "system": COVER_LETTER_SYSTEM, "notes_key": "cover_letter_notes"},
     {"key": "why_fit", "label": "Why I'm a good fit", "system": WHY_FIT_SYSTEM, "notes_key": "why_fit_notes"},
     {"key": "cv_suggestions", "label": "CV suggestions", "system": CV_SUGGESTIONS_SYSTEM, "notes_key": "cv_suggestions_notes"},
+    {"key": "cv_adjust", "label": "Adjust CV to position", "system": CV_ADJUST_SYSTEM, "notes_key": "cv_adjust_notes"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -153,6 +182,7 @@ DEFAULTS = {
     "cover_letter_notes": "",
     "why_fit_notes": "",
     "cv_suggestions_notes": "",
+    "cv_adjust_notes": "",
 }
 
 

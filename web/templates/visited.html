@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 {% block title %}JobCopilot · Visited{% endblock %}
 {% block body %}
+<style>.table-wrap { overflow:visible; }</style>
 <div class="card">
   <div class="actions" style="justify-content:space-between">
     <h2 style="margin:0">Visited jobs ({{ count }})</h2>
+    <div class="actions">
+    <button class="to-bottom" type="button" title="Scroll to the end"
+            onclick="window.scrollTo({top:document.documentElement.scrollHeight,behavior:'smooth'})">↓</button>
     <form method="post" action="{{ url_for('visited_clear') }}"
           onsubmit="return confirm('Remove ALL visited entries? They will be re-analyzed next run.');">
       <button class="danger" type="submit">Remove all</button>
     </form>
+    </div>
   </div>
   <p class="hint">These are skipped on the next run (checked by URL before clicking or calling Claude).</p>
   {% if not items %}

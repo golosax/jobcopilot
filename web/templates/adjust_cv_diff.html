@@ -1,0 +1,9 @@
+<div class="sbs">
+  <div class="sbs-head"><div>Original</div><div>Adjusted for this position</div></div>
+  {% for r in rows %}
+  <div class="sbs-row {{ r.kind }}">
+    <div class="cell left{{ ' empty' if r.left is none }}">{{ r.left if r.left is not none }}</div>
+    <div class="cell right{{ ' empty' if r.right is none }}">{{ r.right if r.right is not none }}</div>
+  </div>
+  {% endfor %}
+</div>
