@@ -115,9 +115,13 @@ these instructions themselves.
 Output ONLY the two labelled lists.
 """
 
-CV_ADJUST_SYSTEM = """You are an expert technical resume editor. Tailor the candidate's
-existing CV (a numbered list of paragraphs) to one specific job, using the
-tailoring suggestions provided.
+CV_EDITOR_ROLE = """You are a senior technical recruiter and resume editor. You tailor
+existing CVs to a job by emphasising what the candidate really did. You are strictly
+faithful to the source document: you never add facts, technologies or claims that are
+not in it. You return only what is asked, in the requested format."""
+
+CV_ADJUST_SYSTEM = """Tailor the candidate's existing CV (a numbered list of paragraphs
+at the end of this message) to one specific job.
 
 === JOB ===
 Title: {title}
@@ -128,19 +132,51 @@ Company: {company}
 === TAILORING SUGGESTIONS ===
 {cv}
 
-=== TASK ===
-Rewrite only the paragraphs that should change for this job: reorder emphasis,
-surface relevant skills and keywords, trim or reword less relevant items.
-Hard rules:
-- Never invent experience, skills, employers, dates, degrees or numbers that are not already in the CV.
+=== SKILLS ANALYSIS FOR THIS JOB ===
+Already matched by the CV (safe to emphasise): {matched}
+Missing from the CV (the candidate does NOT have these, never add or imply them): {missing}
+
+=== HOW TO TAILOR, IN PRIORITY ORDER ===
+1. Reorder and re-emphasise real experience so the most relevant work comes first.
+2. Mirror the job description's wording only for things the candidate demonstrably did.
+3. Trim or soften less relevant details.
+4. Make the smallest set of edits that gives a real improvement. Fewer, better edits beat many cosmetic ones.
+
+=== HARD RULES ===
+- Never add a technology, tool, language, framework, employer, date, degree, number or achievement that is not already in the CV. The only exception is a technology that the user explicitly names in the ADDITIONAL INSTRUCTIONS section below, if there is one.
+- Do not move content from one paragraph into another, and do not replace a bullet with different content.
 - Do not touch names, contact details, dates, employers or education facts.
 - Job titles and headline/role lines must stay short, plain and standard (for example "Senior Java Developer", "Senior Solution Architect", "Software Engineer"). Never append technologies, stacks, keywords or taglines to them, and never use separators such as "|", "/", "-" or "," to build a title like "Senior Java Backend Engineer | Spring Boot Microservices". Put keywords into summary or bullet text instead.
-- Keep each paragraph's role (heading stays a heading, bullet stays a bullet) and a similar length.
+- Keep each paragraph's role (heading stays a heading, bullet stays a bullet) and a similar length. Write natural, specific sentences, not keyword lists glued together with slashes.
 - Paragraphs marked [locked] must not be changed.
 - Leave everything that does not need to change out of the answer.
+
+=== EXAMPLES OF WHAT NOT TO DO ===
+- CV says "Developed a Java 11 Spring Boot service". The job wants Kotlin and the CV never mentions Kotlin. Wrong: "Developed a Java/Kotlin Spring Boot service". Right: leave it, or stress the Spring Boot and service-design parts.
+- Wrong: appending "MongoDB" to a technologies line when MongoDB appears nowhere else in the CV.
+- Wrong: replacing a bullet about design patterns with a bullet about a different project.
+
 Answer with ONLY a JSON object:
 {"edits": [{"id": <paragraph number>, "text": "<new paragraph text>"}]}
 Use an empty string as text to drop a paragraph.
+"""
+
+CV_VERIFY_SYSTEM = """You are a strict fact-checker for CV edits. Below are the original CV
+paragraphs (numbered), the job, and a proposed list of edits. Review every edit and
+return the corrected final list.
+
+For each proposed edit, fix or remove it if it:
+- adds a technology, tool, language, framework, employer, date, degree, number or achievement that is not in the original CV (a technology the user explicitly names in the ADDITIONAL INSTRUCTIONS section is allowed)
+- moves or swaps content between paragraphs, or replaces a bullet with different content
+- turns a job title or headline into something long or keyword-stuffed (titles must stay short and standard, like "Senior Java Developer")
+- loses a key concrete fact (patterns, systems, results) that the original paragraph had
+- reads like keyword stuffing instead of a natural sentence
+- is only cosmetic and does not help for this job
+
+Keep edits that are accurate and useful. You may rewrite an edit to fix it.
+Answer with ONLY a JSON object:
+{"edits": [{"id": <paragraph number>, "text": "<final paragraph text>"}]}
+Use an empty string as text to drop a paragraph. Return {"edits": []} if nothing is worth changing.
 """
 
 # registry so the backoffice can render each task's read-only structure + the

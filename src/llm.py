@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 
 from . import llm_codex
 
@@ -17,29 +18,43 @@ _CLI = os.environ.get("CLAUDE_CLI", "claude")
 _TIMEOUT = 240
 
 
-def complete(prompt, model=None, max_tokens=None, system=None, backend="claude"):
-    """Send a single-turn prompt and return the text response, via the chosen backend."""
+def complete(prompt, model=None, max_tokens=None, system=None, backend="claude", effort=None, isolated=False, timeout=None):
+    """Send a single-turn prompt and return the text response, via the chosen backend.
+
+    effort / isolated / timeout only apply to the claude backend. isolated runs the
+    CLI with no tools, no user/project settings and from an empty temp directory, so
+    CLAUDE.md files and auto-memory can't leak into the prompt.
+    """
     if backend == "codex":
         return llm_codex.complete(prompt, model=model, max_tokens=max_tokens, system=system)
-    return _complete_claude(prompt, model=model, max_tokens=max_tokens, system=system)
+    return _complete_claude(
+        prompt, model=model, max_tokens=max_tokens, system=system, effort=effort, isolated=isolated, timeout=timeout
+    )
 
 
-def _complete_claude(prompt, model=None, max_tokens=None, system=None):
+def _complete_claude(prompt, model=None, max_tokens=None, system=None, effort=None, isolated=False, timeout=None):
     cmd = [_CLI, "-p", prompt, "--output-format", "json"]
     if system:
         cmd += ["--system-prompt", system]
     if model:
         cmd += ["--model", model]
+    if effort:
+        cmd += ["--effort", effort]
+    if isolated:
+        cmd += ["--tools", "", "--setting-sources", ""]
+    timeout = timeout or _TIMEOUT
 
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=_TIMEOUT,
-        )
+        with tempfile.TemporaryDirectory() as empty_dir:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=empty_dir if isolated else None,
+            )
     except subprocess.TimeoutExpired:
-        raise RuntimeError("claude CLI timed out after {}s".format(_TIMEOUT))
+        raise RuntimeError("claude CLI timed out after {}s".format(timeout))
 
     if proc.returncode != 0:
         raise RuntimeError(
@@ -57,9 +72,9 @@ def _complete_claude(prompt, model=None, max_tokens=None, system=None):
     return (envelope.get("result") or "").strip()
 
 
-def complete_json(prompt, model=None, max_tokens=None, system=None, backend="claude"):
+def complete_json(prompt, model=None, max_tokens=None, system=None, backend="claude", **options):
     """Send a prompt expecting a JSON object back and parse it."""
-    text = complete(prompt, model=model, max_tokens=max_tokens, system=system, backend=backend)
+    text = complete(prompt, model=model, max_tokens=max_tokens, system=system, backend=backend, **options)
     return _parse_json(text)
 
 

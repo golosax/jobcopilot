@@ -17,6 +17,8 @@
   .skill { display:inline-block; margin:0 6px 6px 0; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:600; }
   .skill.miss { background:#fbe9e3; color:var(--accent); }
   .skill.have { background:#e8f1ea; color:var(--good); }
+  .blocked { border:1px solid #e6c9bf; background:#fbeee9; border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:13px; }
+  .blocked-item { margin-top:8px; padding-top:8px; border-top:1px solid #e6c9bf; }
   .legend { font-size:12px; color:var(--muted); margin:0 0 12px; }
   .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; }
   #msg { font-size:13px; }
@@ -135,6 +137,13 @@
         var a = document.createElement("a");
         a.href = d.file_url; a.textContent = "output/" + d.file; a.target = "_blank";
         $("msg").append("Saved: ", a);
+        if (d.pdf_url) {
+          var pdf = document.createElement("a");
+          pdf.href = d.pdf_url; pdf.textContent = "PDF"; pdf.target = "_blank";
+          $("msg").append(" · ", pdf);
+        } else if (d.pdf_error) {
+          $("msg").append(" · " + d.pdf_error);
+        }
         $("msg").style.color = "var(--good)";
       })
       .catch(function (e) { msg(e.message, true); })

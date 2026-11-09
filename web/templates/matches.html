@@ -29,7 +29,15 @@
         <td>{% if m.why_fit_file %}<a href="{{ url_for('view_text', name=m.why_fit_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
         <td>{% if m.cv_suggestions_file %}<a href="{{ url_for('view_text', name=m.cv_suggestions_file, sort=sort or none) }}" target="_blank">open</a>{% else %}—{% endif %}</td>
         <td>
-          {% if m.jd_description %}
+          {% if m.adjusted_cv %}
+            <span style="display:inline-flex; align-items:center; gap:8px; white-space:nowrap">
+              <a href="{{ url_for('output_file', name=m.adjusted_cv) }}" target="_blank">open</a>
+              {% if m.adjusted_cv_pdf %}<a href="{{ url_for('output_file', name=m.adjusted_cv_pdf) }}" target="_blank">pdf</a>{% endif %}
+              {% if m.jd_description %}
+                <a class="btn-link" href="{{ url_for('adjust_cv', url=m.url, sort=sort or none) }}">adjust again</a>
+              {% endif %}
+            </span>
+          {% elif m.jd_description %}
             <a class="btn-link" href="{{ url_for('adjust_cv', url=m.url, sort=sort or none) }}">Adjust CV to position</a>
           {% else %}
             <span title="No job description saved for this match">—</span>
@@ -111,7 +119,7 @@
         <th>CV suggestions</th>
         <th>Adjust CV</th>
         <th>Applied (<span id="applied-count">{{ matches|selectattr('applied')|list|length }}</span>)</th>
-        <th title="Not available anymore">Unavailable (<span id="not-available-count">{{ matches|selectattr('not_available')|list|length }}</span>)</th>
+        <th title="Not available anymore">N/A (<span id="not-available-count">{{ matches|selectattr('not_available')|list|length }}</span>)</th>
         <th title="Decided not to apply, e.g. didn't like the position">Won't apply (<span id="not-interested-count">{{ matches|selectattr('not_interested')|list|length }}</span>)</th>
       </tr>
     </thead>

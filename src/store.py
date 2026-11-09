@@ -171,6 +171,16 @@ class Store:
             self._flush_matches()
         return changed
 
+    def set_adjusted_cv(self, url, cv_file):
+        changed = False
+        for m in self._matches:
+            if m.get("url") == url:
+                m["adjusted_cv"] = cv_file
+                changed = True
+        if changed:
+            self._flush_matches()
+        return changed
+
     @property
     def visited_count(self):
         return len(self._visited)

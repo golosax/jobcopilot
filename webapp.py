@@ -209,6 +209,8 @@ def matches():
         items = sorted(items, key=lambda m: m.get("score", 0), reverse=True)
     for m in items:
         m["jd_description"] = _jd_description(m.get("jd_file"))
+        pdf = os.path.splitext(m.get("adjusted_cv") or "")[0] + ".pdf"
+        m["adjusted_cv_pdf"] = pdf if m.get("adjusted_cv") and os.path.isfile(os.path.join(_OUTPUT_DIR, pdf)) else None
     # one group per company, ordered by first appearance so the chosen sort is kept
     groups = {}
     for m in items:
@@ -376,14 +378,18 @@ def adjust_cv_process():
         if not suggestions:
             suggestions = cv_suggestions.generate_text(job, runner.load_cv(), cfg)
         proposed = cv_adjust.proposed_path(token)
-        changed = cv_adjust.propose(original, proposed, job, suggestions, cfg, request.form.get("extra", ""))
+        jd = _load_jd(match.get("jd_file")) or {}
+        changed, blocked = cv_adjust.propose(
+            original, proposed, job, suggestions, cfg, request.form.get("extra", ""),
+            matched=jd.get("matched") or [], missing=jd.get("missing") or [],
+        )
         rows = cv_adjust.diff_rows(original, proposed)
         _log("[web] CV adjusted for {} @ {}: {} paragraphs changed".format(job["title"], job["company"], changed))
         return {
             "ok": True,
             "token": token,
             "changed": sum(1 for r in rows if r["kind"] != "equal"),
-            "html": render_template("adjust_cv_diff.html", rows=rows),
+            "html": render_template("adjust_cv_diff.html", rows=rows, blocked=blocked),
         }
     except Exception as exc:
         _log("[web] CV adjustment failed: {}".format(exc))
@@ -397,8 +403,16 @@ def adjust_cv_accept():
         return {"ok": False, "error": "match not found"}, 404
     try:
         rel = cv_adjust.save_accepted(request.form.get("token", ""), job, settings.load())
+        Store().set_adjusted_cv(match["url"], rel)
         _log("[web] adjusted CV saved to output/{}".format(rel))
-        return {"ok": True, "file": rel, "file_url": url_for("output_file", name=rel)}
+        result = {"ok": True, "file": rel, "file_url": url_for("output_file", name=rel)}
+        try:
+            pdf = cover_letter.convert_to_pdf(rel)
+            result.update(pdf=pdf, pdf_url=url_for("output_file", name=pdf))
+        except Exception as exc:
+            _log("[web] PDF conversion failed: {}".format(exc))
+            result["pdf_error"] = "PDF conversion failed, the DOCX is saved"
+        return result
     except Exception as exc:
         return {"ok": False, "error": str(exc)}, 400
 

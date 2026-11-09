@@ -1,3 +1,16 @@
+{% if blocked %}
+<div class="blocked">
+  <strong>{{ blocked|length }} edit{{ 's' if blocked|length != 1 }} blocked</strong> because {{ 'they add' if blocked|length != 1 else 'it adds' }}
+  technologies that are not in your CV. If you really want them, name them in "Extra instructions" and try again.
+  {% for b in blocked %}
+  <div class="blocked-item">
+    <div class="hint">Original: {{ b.original }}</div>
+    <div class="hint">Proposed: {{ b.text }}</div>
+    <div>{% for t in b.terms %}<span class="skill miss">{{ t }}</span>{% endfor %}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 <div class="sbs">
   <div class="sbs-head"><div>Original</div><div>Adjusted for this position</div></div>
   {% for r in rows %}
