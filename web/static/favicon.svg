@@ -11,8 +11,9 @@
   </defs>
   <rect width="64" height="64" rx="15" fill="url(#bg)"/>
   <g fill="none" stroke="#fff" stroke-width="7.9" stroke-linecap="butt">
-    <path d="M25.13 22V38.05A6 6 0 0 1 13.13 38.05"/>
+    <path d="M25.13 33.4V38.05A6 6 0 0 1 13.13 38.05"/>
     <path d="M52.36 29.18A8.4 9.05 0 1 0 52.36 40.82"/>
   </g>
+  <circle cx="25.13" cy="26.4" r="4.4" fill="#fff"/>
   <path d="M52 7Q53.12 11.88 58 13Q53.12 14.12 52 19Q50.88 14.12 46 13Q50.88 11.88 52 7Z" fill="url(#gold)"/>
 </svg>
