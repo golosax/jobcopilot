@@ -30,14 +30,15 @@
   {% if not has_jd %}
     <p class="hint">No job description is saved for this match, so the CV can't be adjusted.</p>
   {% else %}
-  <p class="hint" style="margin:0 0 10px">Upload your CV as a Word file. The AI tailors it using the CV suggestions for this job,
+  <p class="hint" style="margin:0 0 10px">{% if default_cv %}Your default CV is preselected, choose another Word file to override it.{% else %}Upload your CV as a Word file.{% endif %} The AI tailors it using the CV suggestions for this job,
     and nothing is saved until you accept the changes. Text edits keep paragraph styling, but mixed bold/italic inside one
     edited paragraph is flattened to the first run's style.</p>
   <input type="file" id="file" accept=".docx" hidden>
   <div class="bar" style="margin-top:0">
     <button type="button" class="secondary" id="pick">Choose .docx file</button>
-    <span id="fname" class="hint"></span>
-    <button type="button" id="process" disabled>Adjust</button>
+    <span id="fname" class="hint">{{ default_cv }}</span>
+    <button type="button" class="secondary" id="reset" hidden>Use default</button>
+    <button type="button" id="process" {% if not default_cv %}disabled{% endif %}>Adjust</button>
   </div>
   <label for="extra" style="margin-top:14px">Extra instructions (optional)</label>
   <textarea id="extra" rows="2" placeholder="e.g. keep it to one page, emphasise Kotlin"></textarea>
@@ -82,6 +83,7 @@
 (function () {
   var url = {{ match.url|tojson }};
   var token = "";
+  var defaultCv = {{ default_cv|tojson }};
   var $ = function (id) { return document.getElementById(id); };
   var file = $("file");
 
@@ -93,17 +95,22 @@
 
   $("pick").addEventListener("click", function () { file.click(); });
   file.addEventListener("change", function () {
-    $("fname").textContent = file.files[0] ? file.files[0].name : "";
-    $("process").disabled = !file.files[0];
+    $("fname").textContent = file.files[0] ? file.files[0].name : defaultCv;
+    $("process").disabled = !file.files[0] && !defaultCv;
+    $("reset").hidden = !file.files[0] || !defaultCv;
     token = "";
     $("result").hidden = true;
+  });
+  $("reset").addEventListener("click", function () {
+    file.value = "";
+    file.dispatchEvent(new Event("change"));
   });
 
   function run(reuse) {
     var body = new FormData();
     body.append("url", url);
     body.append("extra", $("extra").value);
-    if (reuse && token) { body.append("token", token); } else { body.append("file", file.files[0]); }
+    if (reuse && token) { body.append("token", token); } else if (file.files[0]) { body.append("file", file.files[0]); }
     busy(true, "Adjusting, this can take a minute...");
     $("result").hidden = true;
     fetch("{{ url_for('adjust_cv_process') }}", { method: "POST", body: body })
@@ -119,7 +126,7 @@
         $("result").scrollIntoView({ behavior: "smooth" });
       })
       .catch(function (e) { msg(e.message, true); })
-      .then(function () { busy(false); $("process").disabled = !file.files[0]; });
+      .then(function () { busy(false); $("process").disabled = !file.files[0] && !defaultCv; });
   }
 
   $("process").addEventListener("click", function () { run(false); });
@@ -147,7 +154,7 @@
         $("msg").style.color = "var(--good)";
       })
       .catch(function (e) { msg(e.message, true); })
-      .then(function () { ["pick", "retry", "accept"].forEach(function (id) { $(id).disabled = false; }); $("process").disabled = !file.files[0]; });
+      .then(function () { ["pick", "retry", "accept"].forEach(function (id) { $(id).disabled = false; }); $("process").disabled = !file.files[0] && !defaultCv; });
   });
 })();
 </script>

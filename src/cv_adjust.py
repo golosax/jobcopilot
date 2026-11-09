@@ -277,12 +277,16 @@ def _dashed(text):
 
 def _filename(docx_path, cfg):
     """<Name>_<Title-From-The-CV>.docx, e.g. Alex-Golosun_Senior-Java-Engineer.docx.
-    The title is the headline line right under the name at the top of the CV.
+    The title is the headline line right under the name at the top of the CV; for
+    "Senior Java Engineer | Spring Boot, ..." only the part before the first "|" is used.
     """
     paragraphs = [p.text.strip() for p in _ordered_paragraphs(Document(docx_path))]
     name = cfg.get("candidate_name") or (paragraphs[0] if paragraphs else "") or "CV"
     headline = paragraphs[1] if len(paragraphs) > 1 else ""
-    title = headline if len(headline) <= 60 and not re.search(r"[@|\d]", headline) else ""
+    is_contact_line = re.search(r"@|\d{3}", headline)
+    title = re.split(r"\s*[|•·]\s*", headline)[0].strip()
+    if is_contact_line or len(title) > 60 or re.search(r"\d", title):
+        title = ""
     parts = [_dashed(name), _dashed(title)]
     return "_".join(p for p in parts if p) + ".docx"
 

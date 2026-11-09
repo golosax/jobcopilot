@@ -37,7 +37,8 @@ _CV_PATH = os.path.join(_ROOT, "data", "cv.txt")
 # a match counts as new for this long after it is first added
 _NEW_MATCH_WINDOW_SECONDS = 24 * 3600
 
-app = Flask(__name__, template_folder=os.path.join(_ROOT, "web", "templates"))
+app = Flask(__name__, template_folder=os.path.join(_ROOT, "web", "templates"),
+            static_folder=os.path.join(_ROOT, "web", "static"))
 
 # in-memory run log (most recent lines)
 _log_lines = []
@@ -144,6 +145,7 @@ def save():
         "why_fit_notes": f.get("why_fit_notes", ""),
         "cv_suggestions_notes": f.get("cv_suggestions_notes", ""),
         "cv_adjust_notes": f.get("cv_adjust_notes", ""),
+        "cv_adjust_default_docx": f.get("cv_adjust_default_docx", "").strip(),
         "min_delay_sec": _to_int(f.get("min_delay_sec"), 15),
         "max_delay_sec": _to_int(f.get("max_delay_sec"), 90),
         "max_pages": _to_int(f.get("max_pages"), 0),
@@ -335,6 +337,13 @@ def _read_output_text(rel):
         return f.read().strip()
 
 
+def _default_cv_docx():
+    path = os.path.expanduser(settings.load().get("cv_adjust_default_docx", "") or "")
+    if path.lower().endswith(".docx") and os.path.isfile(path):
+        return path
+    return ""
+
+
 @app.route("/matches/adjust-cv")
 def adjust_cv():
     url = request.args.get("url", "")
@@ -348,6 +357,7 @@ def adjust_cv():
         "adjust_cv.html", match=match, has_jd=bool(job["description"]), back_url=back_url,
         suggestions=_read_output_text(match.get("cv_suggestions_file")),
         missing=jd.get("missing") or [], matched=jd.get("matched") or [],
+        default_cv=_default_cv_docx(),
     )
 
 
@@ -372,6 +382,12 @@ def adjust_cv_process():
             except Exception:
                 return {"ok": False, "error": "Could not read the file as a Word document"}, 400
             token = cv_adjust.new_session(data)
+        elif not token:
+            default_path = _default_cv_docx()
+            if not default_path:
+                return {"ok": False, "error": "Choose a .docx file"}, 400
+            with open(default_path, "rb") as f:
+                token = cv_adjust.new_session(f.read())
         original = cv_adjust.original_path(token)
         cfg = settings.load()
         suggestions = _read_output_text(match.get("cv_suggestions_file"))

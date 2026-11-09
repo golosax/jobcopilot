@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}JobCopilot{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <style>
     :root {
       --bg:#faf9f5; --panel:#ffffff; --ink:#2b2a27; --muted:#75726b;
@@ -18,7 +19,7 @@
     header { background:var(--panel); border-bottom:1px solid var(--line);
       padding:14px 26px; display:flex; align-items:center; gap:26px; position:sticky; top:0; z-index:5; }
     header .brand { font-weight:650; font-size:16px; letter-spacing:.2px; display:flex; align-items:center; gap:9px; }
-    header .dot { width:10px; height:10px; border-radius:50%; background:var(--accent); display:inline-block; }
+    header .logo { width:29px; height:29px; display:block; }
     nav a { color:var(--muted); margin-right:18px; font-weight:500; font-size:14px; }
     nav a:hover { color:var(--ink); text-decoration:none; }
     main { max-width:1240px; margin:26px auto; padding:0 22px; }
@@ -65,7 +66,7 @@
 </head>
 <body>
   <header>
-    <span class="brand"><span class="dot"></span> JobCopilot</span>
+    <span class="brand"><img class="logo" src="{{ url_for('static', filename='favicon.svg') }}" alt=""> JobCopilot</span>
     <nav>
       <a href="{{ url_for('index') }}">Config</a>
       <a href="{{ url_for('matches') }}">Matches</a>

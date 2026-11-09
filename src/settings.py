@@ -219,6 +219,7 @@ DEFAULTS = {
     "why_fit_notes": "",
     "cv_suggestions_notes": "",
     "cv_adjust_notes": "",
+    "cv_adjust_default_docx": "",
 }
 
 
